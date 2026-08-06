@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: devops-incident-responder
+
+server:
+  port: 8080
+
+langchain4j:
+  open-ai:
+    chat-model:
+      # Groq is OpenAI-API-compatible, so the OpenAI model works against its base URL.
+      base-url: https://api.groq.com/openai/v1
+      # Sourced from the GROQ_API_KEY environment variable. The empty default keeps the
+      # app bootable without a key (calls then fail with 401 rather than the context
+      # failing to start) - never put a literal key here.
+      api-key: ${GROQ_API_KEY:}
+      model-name: llama-3.3-70b-versatile
+      temperature: 0.2
+      timeout: 60s
+      log-requests: false
+      log-responses: false
