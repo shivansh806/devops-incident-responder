@@ -24,7 +24,7 @@ public class AnalyzeController {
 
     @PostMapping("/analyze")
     public LogAnalysis analyze(@RequestBody AnalyzeRequest request) {
-        return analyzerService.analyze(request.logs());
+        return analyzerService.analyze(request.logs(), request.serviceName());
     }
 
     /** Caller's fault: missing or oversized logs. */

@@ -25,4 +25,10 @@ Week 1 — Step 3 done.
 - Structured output uses LangChain4j's prompt-based JSON path, not native
   `json_schema` — Groq's schema support is model-dependent. Do not declare
   `RESPONSE_FORMAT_JSON_SCHEMA` on the model without re-testing.
+- `serviceName` in the request is optional. When present it overrides whatever
+  the model says for `affectedService`; when absent the model infers it. Don't
+  make it mandatory — a multi-service dump is exactly the case where the caller
+  does not know the origin.
+- Jackson `fail-on-unknown-properties` stays **false** (Week 3 Kafka events will
+  carry extra fields). `JacksonConfig` logs a WARN instead so drops stay visible.
 - Next: Week 2 — MongoDB, seed past incidents, Resolver Agent

@@ -47,11 +47,19 @@ public class AnalyzerService {
 
     private final AnalyzerAgent analyzerAgent;
 
+    /** Analyses logs whose originating service is unknown, leaving the model to identify it. */
+    public LogAnalysis analyze(String rawLogs) {
+        return analyze(rawLogs, null);
+    }
+
     /**
+     * @param knownService the originating service if the caller already knows it, else null.
+     *                     When supplied it is authoritative - it is copied into the result
+     *                     verbatim and the model's own answer for that field is discarded.
      * @throws IllegalArgumentException if the log dump is empty or over {@link #MAX_LOG_CHARS}
      * @throws AnalysisFailedException  if the agent call or its parsing fails
      */
-    public LogAnalysis analyze(String rawLogs) {
+    public LogAnalysis analyze(String rawLogs, String knownService) {
         if (rawLogs == null || rawLogs.isBlank()) {
             throw new IllegalArgumentException("'logs' must not be empty");
         }
@@ -60,11 +68,15 @@ public class AnalyzerService {
                     "'logs' is %,d characters, the limit is %,d".formatted(rawLogs.length(), MAX_LOG_CHARS));
         }
 
-        log.info("Analyzing {} characters of logs", rawLogs.length());
+        String service = isMissing(knownService) ? null : knownService.trim();
+        log.info("Analyzing {} characters of logs (service={})",
+                rawLogs.length(), service == null ? "to be inferred" : service);
 
         AnalyzerOutput output;
         try {
-            output = analyzerAgent.analyze(rawLogs);
+            output = service == null
+                    ? analyzerAgent.analyze(rawLogs)
+                    : analyzerAgent.analyzeForService(rawLogs, service);
         } catch (RuntimeException e) {
             log.error("Analyzer agent call failed", e);
             throw new AnalysisFailedException("Analyzer agent call failed: " + e.getMessage(), e);
@@ -73,20 +85,36 @@ public class AnalyzerService {
             throw new AnalysisFailedException("Analyzer agent returned no result");
         }
 
-        LogAnalysis analysis = toAnalysis(output);
+        LogAnalysis analysis = toAnalysis(output, service);
         log.info("Diagnosis: errorType={} service={} severity={} confidence={}",
                 analysis.errorType(), analysis.affectedService(), analysis.severity(), analysis.confidence());
         return analysis;
     }
 
-    private LogAnalysis toAnalysis(AnalyzerOutput output) {
+    private LogAnalysis toAnalysis(AnalyzerOutput output, String knownService) {
         return new LogAnalysis(
                 orDefault(output.errorType(), UNKNOWN_ERROR_TYPE),
-                orDefault(output.affectedService(), UNKNOWN_SERVICE),
+                affectedService(output.affectedService(), knownService),
                 severityOrDefault(output.severity()),
                 parseFirstOccurrence(output.firstOccurrence()),
                 cleanEvidence(output.keyEvidence()),
                 clampConfidence(output.confidence()));
+    }
+
+    /**
+     * A caller-supplied service name always wins. The prompt also tells the model to use it,
+     * but a prompt is a request, not a guarantee - this is the guarantee. Only when the
+     * caller does not know the service does the model's answer get used.
+     */
+    private static String affectedService(String fromModel, String knownService) {
+        if (knownService != null) {
+            if (!isMissing(fromModel) && !knownService.equalsIgnoreCase(fromModel.trim())) {
+                log.debug("Model answered affectedService='{}', overridden by caller-supplied '{}'",
+                        fromModel.trim(), knownService);
+            }
+            return knownService;
+        }
+        return orDefault(fromModel, UNKNOWN_SERVICE);
     }
 
     private static String orDefault(String value, String fallback) {

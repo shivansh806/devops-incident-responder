@@ -8,8 +8,13 @@ import dev.langchain4j.service.V;
  * Agent 1 of 2. Reads raw application logs and produces a structured diagnosis.
  * <p>
  * This is a LangChain4j AI Service: the interface is never implemented by hand. A proxy
- * built in {@code AgentConfig} turns a call to {@link #analyze(String)} into a chat
- * request, and parses the reply back into an {@link AnalyzerOutput}.
+ * built in {@code AgentConfig} turns a method call into a chat request, and parses the
+ * reply back into an {@link AnalyzerOutput}.
+ * <p>
+ * Two entry points, because the caller sometimes already knows which service the logs came
+ * from. {@link #analyzeForService} tells the model rather than making it guess;
+ * {@link #analyze} is the fallback for a dump spanning several services, where identifying
+ * the origin is part of the diagnosis.
  * <p>
  * Note that the system prompt does not describe the JSON structure. LangChain4j appends
  * format instructions derived from the return type automatically; a hand-written copy here
@@ -17,7 +22,7 @@ import dev.langchain4j.service.V;
  */
 public interface AnalyzerAgent {
 
-    @SystemMessage("""
+    String SYSTEM_PROMPT = """
             You are an expert Site Reliability Engineer performing incident triage.
             Your only job is to DIAGNOSE what happened, from raw application logs.
 
@@ -42,10 +47,22 @@ public interface AnalyzerAgent {
               numbers, timestamps or free prose in it.
 
             affectedService:
-            - The service where the failure ORIGINATED, not every service that logged an error.
-              A service timing out because its dependency is down is a victim, not the origin.
-            - Use the service name exactly as it appears in the logs.
-            - If the logs do not identify a service, use "unknown".
+            - A SERVICE is a separately deployable application - something with its own
+              process, its own host, and its own on-call owner. Typical names look like
+              payment-service, order-api, user-svc, checkout.
+            - A service is NOT a connection pool, thread pool, thread, logger name, Java
+              class, package, library or framework component. These are NEVER valid answers,
+              even though they appear in the logs and look like names:
+                  HikariPool-1, http-nio-8081-exec-7, pool-3-thread-1,
+                  com.zaxxer.hikari.pool.HikariPool, PaymentRepository, Tomcat
+              Those identify a component INSIDE a service, not the service itself.
+            - Look for the service tag repeated across most lines, such as the
+              [payment-service] marker, or an application-name field in structured logs.
+            - Report the service where the failure ORIGINATED, not every service that logged
+              an error. A service timing out because its dependency is down is a victim, not
+              the origin - name the dependency that failed first.
+            - If no separately deployable application can be identified, use "unknown".
+              "unknown" is a better answer than a component name.
 
             severity - judge blast radius, not log level:
             - CRITICAL: users are failing right now, or data is being lost or corrupted.
@@ -69,7 +86,12 @@ public interface AnalyzerAgent {
 
             If the input is not application logs at all, set errorType to "NotALogFile",
             severity to LOW, confidence to 0.0, and leave keyEvidence empty.
-            """)
+            """;
+
+    /**
+     * Diagnoses logs whose originating service is unknown, so the model has to identify it.
+     */
+    @SystemMessage(SYSTEM_PROMPT)
     @UserMessage("""
             Analyse the following application logs and report your diagnosis.
 
@@ -78,4 +100,26 @@ public interface AnalyzerAgent {
             ---END LOGS---
             """)
     AnalyzerOutput analyze(@V("logs") String logs);
+
+    /**
+     * Diagnoses logs whose originating service the caller already knows. The name is given
+     * to the model as established fact - both so it stops guessing, and so the rest of the
+     * diagnosis is framed around the right subject.
+     * <p>
+     * {@code AnalyzerService} overwrites {@code affectedService} with the supplied name
+     * regardless of what comes back, so this prompt is context rather than the guarantee.
+     */
+    @SystemMessage(SYSTEM_PROMPT)
+    @UserMessage("""
+            These logs come from the service named "{{serviceName}}". That is established
+            fact, not something to verify - use exactly that string as affectedService, and
+            treat that service as the subject of your diagnosis.
+
+            Analyse the following application logs and report your diagnosis.
+
+            ---BEGIN LOGS---
+            {{logs}}
+            ---END LOGS---
+            """)
+    AnalyzerOutput analyzeForService(@V("logs") String logs, @V("serviceName") String serviceName);
 }

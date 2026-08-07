@@ -16,8 +16,11 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * Covers the untrusted-output normalisation. The agent is mocked, so nothing here talks to
@@ -111,6 +114,42 @@ class AnalyzerServiceTest {
                 Arrays.asList("  a real line  ", null, "   "), 0.5));
 
         assertThat(analyzerService.analyze("logs").keyEvidence()).containsExactly("a real line");
+    }
+
+    @Test
+    void callerSuppliedServiceOverridesTheModel() {
+        // The bug that prompted this: the model picked a connection pool name out of the logs.
+        given(analyzerAgent.analyzeForService("logs", "payment-service")).willReturn(new AnalyzerOutput(
+                "ConnectionPoolExhausted", "HikariPool-1", Severity.CRITICAL, null, List.of(), 0.9));
+
+        assertThat(analyzerService.analyze("logs", "payment-service").affectedService())
+                .isEqualTo("payment-service");
+    }
+
+    @Test
+    void callerSuppliedServiceIsUsedEvenWhenTheModelOmitsIt() {
+        given(analyzerAgent.analyzeForService("logs", "order-service")).willReturn(new AnalyzerOutput(
+                "UpstreamTimeout", null, Severity.HIGH, null, List.of(), 0.6));
+
+        assertThat(analyzerService.analyze("logs", "order-service").affectedService())
+                .isEqualTo("order-service");
+    }
+
+    @Test
+    void routesToTheInferringPromptWhenNoServiceIsSupplied() {
+        given(analyzerAgent.analyze("logs")).willReturn(output(null));
+
+        assertThat(analyzerService.analyze("logs", "  ").affectedService()).isEqualTo("order-service");
+        verify(analyzerAgent, never()).analyzeForService(anyString(), anyString());
+    }
+
+    @Test
+    void trimsTheCallerSuppliedService() {
+        given(analyzerAgent.analyzeForService("logs", "payment-service")).willReturn(
+                output(null));
+
+        assertThat(analyzerService.analyze("logs", "  payment-service  ").affectedService())
+                .isEqualTo("payment-service");
     }
 
     @Test
