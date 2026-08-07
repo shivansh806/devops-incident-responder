@@ -16,8 +16,13 @@ Read project-brief.md for the full spec before making decisions.
 - I am learning — when you use a new concept, explain it in 2-3 lines
 
 ## Current Status
-Week 1 — Step 2 done.
+Week 1 — Step 3 done.
 - Spring Boot skeleton, GET /api/hello working with test
 - LangChain4j configured with Groq
 - .env + spring-dotenv for GROQ_API_KEY
-- Next: Analyzer Agent (structured log analysis)
+- Analyzer Agent: LangChain4j AI Service (`AnalyzerAgent`) returning a typed
+  `LogAnalysis`, wired into POST /api/analyze. Temporary /api/test-llm removed.
+- Structured output uses LangChain4j's prompt-based JSON path, not native
+  `json_schema` — Groq's schema support is model-dependent. Do not declare
+  `RESPONSE_FORMAT_JSON_SCHEMA` on the model without re-testing.
+- Next: Week 2 — MongoDB, seed past incidents, Resolver Agent

@@ -20,7 +20,9 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <langchain4j.version>1.18.1-beta28</langchain4j.version>
+        <!-- Core library and the Spring starters are versioned separately upstream. -->
+        <langchain4j.version>1.18.1</langchain4j.version>
+        <langchain4j-spring.version>1.18.1-beta28</langchain4j-spring.version>
         <spring-dotenv.version>5.1.0</spring-dotenv.version>
     </properties>
 
@@ -33,6 +35,17 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+            <version>${langchain4j-spring.version}</version>
+        </dependency>
+
+        <!--
+            AI Services (AiServices, @SystemMessage, @UserMessage) live here, not in
+            langchain4j-core. The OpenAI starter only pulls core, so declaring agents as
+            annotated interfaces needs this module explicitly.
+        -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
 
