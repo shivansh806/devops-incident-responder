@@ -31,6 +31,10 @@ Week 1 — Step 3 done.
   does not know the origin.
 - Jackson `fail-on-unknown-properties` stays **false** (Week 3 Kafka events will
   carry extra fields). `JacksonConfig` logs a WARN instead so drops stay visible.
+- Analyzer Agent working, typed structured output via POST /api/analyze
+- serviceName optional: pass-through when supplied, inferred otherwise
+- Next: 6 log samples + prompt tuning (Step 4)
+
 - Next: Week 2 — MongoDB, seed past incidents, Resolver Agent
 ## Known decisions to revisit
 - Week 3: Kafka consumer needs its own ObjectMapper without the
