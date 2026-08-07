@@ -32,3 +32,6 @@ Week 1 — Step 3 done.
 - Jackson `fail-on-unknown-properties` stays **false** (Week 3 Kafka events will
   carry extra fields). `JacksonConfig` logs a WARN instead so drops stay visible.
 - Next: Week 2 — MongoDB, seed past incidents, Resolver Agent
+## Known decisions to revisit
+- Week 3: Kafka consumer needs its own ObjectMapper without the
+  unknown-property WARN handler (would flood logs at event rate)
