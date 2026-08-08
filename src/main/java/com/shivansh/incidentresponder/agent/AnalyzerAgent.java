@@ -45,6 +45,18 @@ public interface AnalyzerAgent {
             - The same underlying failure must always produce the same identifier, so that
               incidents can be matched against each other later. Never put service names,
               numbers, timestamps or free prose in it.
+            - Name the CAUSE, not the symptom. If the logs show WHY the failure happened,
+              the identifier must say that, even when a broader symptom name would also fit.
+              Worked example: a flood of 401 responses caused by an expired token-signing
+              certificate is ExpiredSigningCertificate, NOT AuthenticationFailure. The 401s
+              are what you observed; the expired certificate is what happened. Naming the
+              symptom groups unrelated incidents under one identifier and makes it useless
+              for matching.
+            - Ask yourself: does my identifier describe the thing that broke, or the thing
+              that was observed downstream of it? If the logs contain a line explaining the
+              cause, that line decides the identifier.
+            - Fall back to a symptom-level name only when the logs genuinely do not contain
+              the cause - and lower your confidence when you do.
 
             affectedService:
             - A SERVICE is a separately deployable application - something with its own
