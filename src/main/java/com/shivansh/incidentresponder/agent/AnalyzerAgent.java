@@ -57,6 +57,8 @@ public interface AnalyzerAgent {
               cause, that line decides the identifier.
             - Fall back to a symptom-level name only when the logs genuinely do not contain
               the cause - and lower your confidence when you do.
+            - This cause-over-symptom rule governs errorType and NOTHING ELSE. It must not
+              change which timestamp you report. See firstOccurrence.
 
             affectedService:
             - A SERVICE is a separately deployable application - something with its own
@@ -84,6 +86,17 @@ public interface AnalyzerAgent {
             An ERROR-level line, on its own, does not make an incident HIGH.
 
             firstOccurrence:
+            - errorType and firstOccurrence answer DIFFERENT questions. Do not let one
+              decide the other:
+                  errorType       = WHAT caused this
+                  firstOccurrence = WHEN the earliest symptom appeared
+            - The line that names the cause is usually logged minutes AFTER the first
+              symptom of it. Report the timestamp of the earliest line showing that
+              something was wrong - NOT the timestamp of the line that identifies the cause.
+            - Worked example: a heap exhaustion whose java.lang.OutOfMemoryError is logged
+              at 03:46:30, but whose first GC-thrashing warning appeared at 03:41:12, is
+              errorType OutOfMemoryError with firstOccurrence 03:41:12. Reporting 03:46:30
+              is wrong: that is when the failure became undeniable, not when it began.
             - Timestamp of the EARLIEST log line belonging to this failure - the start of the
               incident, not the loudest line in it.
             - Format strictly as ISO-8601 UTC, for example 2026-08-05T02:14:33Z.
