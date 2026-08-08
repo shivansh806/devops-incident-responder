@@ -1,0 +1,33 @@
+2026-08-06T03:38:02.551Z  INFO 1 --- [order-service] [nio-8081-exec-4] c.s.o.web.OrderController                : GET /v1/orders/export?from=2025-01-01&to=2026-08-06 accepted, jobId=EXP-4471
+2026-08-06T03:38:02.719Z  INFO 1 --- [order-service] [export-worker-1] c.s.o.export.OrderExportJob              : Export EXP-4471 started, estimated 3.2M rows
+2026-08-06T03:38:44.106Z  INFO 1 --- [order-service] [nio-8081-exec-2] c.s.o.web.OrderController                : POST /v1/orders 201 in 62ms
+2026-08-06T03:39:17.882Z  INFO 1 --- [order-service] [export-worker-1] c.s.o.export.OrderExportJob              : Export EXP-4471 loaded 800000 rows into memory
+2026-08-06T03:40:03.410Z  INFO 1 --- [order-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : jvm.memory.used{area=heap} = 2.81 GiB / 4.00 GiB
+2026-08-06T03:40:55.239Z  INFO 1 --- [order-service] [export-worker-1] c.s.o.export.OrderExportJob              : Export EXP-4471 loaded 1600000 rows into memory
+2026-08-06T03:41:12.664Z  WARN 1 --- [order-service] [gc-monitor-1] c.s.o.obs.GcHealthMonitor                : G1 Old Gen collection took 4812ms, reclaimed 118 MiB, heap after 3.68 GiB / 4.00 GiB
+2026-08-06T03:41:48.030Z  INFO 1 --- [order-service] [nio-8081-exec-7] c.s.o.web.OrderController                : POST /v1/orders 201 in 1844ms
+2026-08-06T03:42:20.917Z  WARN 1 --- [order-service] [gc-monitor-1] c.s.o.obs.GcHealthMonitor                : G1 Old Gen collection took 6203ms, reclaimed 41 MiB, heap after 3.79 GiB / 4.00 GiB
+2026-08-06T03:42:21.005Z  WARN 1 --- [order-service] [gc-monitor-1] c.s.o.obs.GcHealthMonitor                : GC overhead over last 60s is 62%, application threads paused for 37.2s
+2026-08-06T03:43:04.771Z  INFO 1 --- [order-service] [export-worker-1] c.s.o.export.OrderExportJob              : Export EXP-4471 loaded 2400000 rows into memory
+2026-08-06T03:43:39.118Z  WARN 1 --- [order-service] [nio-8081-exec-3] c.s.o.web.OrderController                : POST /v1/orders 201 in 9931ms (slow request threshold 3000ms)
+2026-08-06T03:44:02.884Z  WARN 1 --- [order-service] [gc-monitor-1] c.s.o.obs.GcHealthMonitor                : G1 Old Gen collection took 9440ms, reclaimed 12 MiB, heap after 3.91 GiB / 4.00 GiB
+2026-08-06T03:44:12.330Z  WARN 1 --- [order-service] [kafka-heartbeat-1] o.a.k.c.c.i.AbstractCoordinator          : [Consumer clientId=order-service-1, groupId=order-events] Heartbeat failed, session timed out before a poll completed
+2026-08-06T03:44:13.002Z  INFO 1 --- [order-service] [kafka-heartbeat-1] o.a.k.c.c.i.ConsumerCoordinator          : Revoking previously assigned partitions [order-events-0, order-events-1]
+2026-08-06T03:45:01.226Z  WARN 1 --- [order-service] [gc-monitor-1] c.s.o.obs.GcHealthMonitor                : GC overhead over last 60s is 88%, application threads paused for 52.9s
+2026-08-06T03:45:44.917Z  WARN 1 --- [order-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health check timed out after 10000ms, reporting UNKNOWN
+2026-08-06T03:46:30.114Z ERROR 1 --- [order-service] [nio-8081-exec-5] o.a.c.c.C.[.[.[/].[dispatcherServlet]    : Servlet.service() for servlet [dispatcherServlet] threw exception
+java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.util.Arrays.copyOf(Arrays.java:3541)
+	at java.base/java.lang.StringBuilder.append(StringBuilder.java:173)
+	at com.shivansh.order.export.CsvRowWriter.write(CsvRowWriter.java:52)
+	at com.shivansh.order.export.OrderExportJob.run(OrderExportJob.java:97)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+2026-08-06T03:46:31.008Z  INFO 1 --- [order-service] [Attach Listener] j.l.OutOfMemoryError                     : Dumping heap to /var/log/order-service/java_pid1.hprof ...
+2026-08-06T03:47:02.443Z  INFO 1 --- [order-service] [Attach Listener] j.l.OutOfMemoryError                     : Heap dump file created [4198412288 bytes in 31.435 secs]
+2026-08-06T03:47:04.771Z ERROR 1 --- [order-service] [export-worker-1] c.s.o.export.OrderExportJob              : Export EXP-4471 terminated abnormally
+java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.util.HashMap.resize(HashMap.java:702)
+	at com.shivansh.order.export.OrderExportJob.accumulate(OrderExportJob.java:141)
+2026-08-06T03:47:19.660Z ERROR 1 --- [order-service] [nio-8081-exec-9] c.s.o.web.OrderController                : POST /v1/orders failed, unable to allocate response buffer
+2026-08-06T03:47:33.882Z  WARN 1 --- [order-service] [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Commencing graceful shutdown, 47 requests still in flight
+2026-08-06T03:47:41.115Z  INFO 1 --- [order-service] [SpringApplicationShutdownHook] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown aborted with 47 requests still active

@@ -24,6 +24,8 @@
         <langchain4j.version>1.18.1</langchain4j.version>
         <langchain4j-spring.version>1.18.1-beta28</langchain4j-spring.version>
         <spring-dotenv.version>5.1.0</spring-dotenv.version>
+        <!-- Overridable so the llm-tagged baseline can be run on demand; see surefire below. -->
+        <surefire.excludedGroups>llm</surefire.excludedGroups>
     </properties>
 
     <dependencies>
@@ -75,6 +77,21 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        Tests tagged "llm" make real, billable calls to Groq. Keeping them out
+                        of the build means `mvn test` stays fast, free and offline. Running
+                        one directly from the IDE bypasses this filter, which is exactly how
+                        AnalyzerBaselineTest is meant to be run. From the command line, clear
+                        the property to let it through:
+                          mvn test -Dsurefire.excludedGroups= -Dtest=AnalyzerBaselineTest
+                    -->
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

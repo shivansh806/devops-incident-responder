@@ -1,0 +1,34 @@
+2026-08-05T02:08:11.042Z  INFO 1 --- [payment-service] [main] c.s.p.PaymentServiceApplication          : Started PaymentServiceApplication in 8.114 seconds (process running for 8.902)
+2026-08-05T02:09:58.310Z  INFO 1 --- [payment-service] [scheduling-1] c.s.p.job.SettlementReconciler           : Nightly settlement reconciliation started for 2026-08-04
+2026-08-05T02:09:59.004Z  INFO 1 --- [payment-service] [scheduling-1] c.s.p.job.SettlementReconciler           : Loaded 18442 pending settlements, batch size 500
+2026-08-05T02:10:31.772Z  INFO 1 --- [payment-service] [nio-8080-exec-2] c.s.p.web.PaymentController              : POST /v1/payments/refund txn=TXN-99180244 amount=2499.00
+2026-08-05T02:10:31.910Z  INFO 1 --- [payment-service] [nio-8080-exec-2] c.s.p.web.PaymentController              : Refund TXN-99180244 accepted in 138ms
+2026-08-05T02:10:44.201Z  INFO 1 --- [payment-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : Published 214 meters to statsd
+2026-08-05T02:11:04.288Z  INFO 1 --- [payment-service] [scheduling-1] c.s.p.job.SettlementReconciler           : Reconciled 6000/18442 settlements
+2026-08-05T02:11:47.019Z  INFO 1 --- [payment-service] [nio-8080-exec-5] c.s.p.web.PaymentController              : POST /v1/payments/refund txn=TXN-99180391 amount=799.00
+2026-08-05T02:11:49.633Z  INFO 1 --- [payment-service] [nio-8080-exec-5] c.s.p.web.PaymentController              : Refund TXN-99180391 accepted in 2614ms
+2026-08-05T02:12:15.400Z  WARN 1 --- [payment-service] [nio-8080-exec-1] c.s.p.repo.PaymentRepository             : processRefund acquired a connection in 4871ms (slow-acquire threshold 1000ms)
+2026-08-05T02:12:33.918Z  INFO 1 --- [payment-service] [nio-8080-exec-3] c.s.p.web.PaymentController              : GET /v1/payments/TXN-99180244 200 in 41ms
+2026-08-05T02:12:58.126Z  WARN 1 --- [payment-service] [Hikari housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=38s)
+2026-08-05T02:13:20.884Z  INFO 1 --- [payment-service] [scheduling-1] c.s.p.job.SettlementReconciler           : Reconciled 9500/18442 settlements
+2026-08-05T02:13:44.502Z  WARN 1 --- [payment-service] [nio-8080-exec-3] c.s.p.repo.PaymentRepository             : processRefund acquired a connection in 19204ms (slow-acquire threshold 1000ms)
+2026-08-05T02:14:02.775Z  WARN 1 --- [payment-service] [Hikari housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Pool stats (total=10, active=10, idle=0, waiting=14)
+2026-08-05T02:14:33.028Z ERROR 1 --- [payment-service] [nio-8080-exec-7] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Connection is not available, request timed out after 30000ms (total=10, active=10, idle=0, waiting=23)
+2026-08-05T02:14:33.031Z ERROR 1 --- [payment-service] [nio-8080-exec-7] c.s.p.web.PaymentController              : Refund TXN-99180517 failed
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:83)
+	at com.shivansh.payment.repo.PaymentRepository.processRefund(PaymentRepository.java:118)
+	at com.shivansh.payment.web.PaymentController.refund(PaymentController.java:64)
+Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)
+	... 42 common frames omitted
+2026-08-05T02:14:41.669Z ERROR 1 --- [payment-service] [nio-8080-exec-9] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Connection is not available, request timed out after 30000ms (total=10, active=10, idle=0, waiting=31)
+2026-08-05T02:15:02.117Z  WARN 1 --- [payment-service] [nio-8080-exec-4] o.a.c.util.LimitLatch                    : Maximum connection count reached, 200 of 200 in use
+2026-08-05T02:15:10.905Z ERROR 1 --- [payment-service] [scheduling-1] c.s.p.job.SettlementReconciler           : Reconciliation batch 20 of 37 failed, will retry at next schedule
+2026-08-05T02:15:33.044Z ERROR 1 --- [payment-service] [nio-8080-exec-7] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Connection is not available, request timed out after 30000ms (total=10, active=10, idle=0, waiting=47)
+2026-08-05T02:15:33.812Z  INFO 1 --- [payment-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status changed from UP to DOWN (db: DOWN, diskSpace: UP, ping: UP)
+2026-08-05T02:15:48.226Z ERROR 1 --- [payment-service] [nio-8080-exec-2] c.s.p.web.PaymentController              : Refund TXN-99180644 failed: could not obtain a database connection
+2026-08-05T02:16:04.771Z  WARN 1 --- [payment-service] [nio-8080-exec-8] c.s.p.web.PaymentController              : Returning 503 to caller order-service, error rate over last 60s is 91%
+2026-08-05T02:16:12.330Z  INFO 1 --- [payment-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : Published 214 meters to statsd
+2026-08-05T02:16:44.019Z ERROR 1 --- [payment-service] [nio-8080-exec-6] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Connection is not available, request timed out after 30000ms (total=10, active=10, idle=0, waiting=52)
+2026-08-05T02:17:01.884Z  WARN 1 --- [payment-service] [Hikari housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Pool stats (total=10, active=10, idle=0, waiting=52)

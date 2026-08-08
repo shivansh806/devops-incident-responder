@@ -1,0 +1,25 @@
+2026-08-03T15:40:02.118Z  INFO 1 --- [profile-service] [nio-8086-exec-3] c.s.p.web.ProfileController              : GET /v1/profile/U-11204 200 in 6ms (cache hit)
+2026-08-03T15:41:19.660Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : cache.gets{result=hit} ratio = 98.2%, db.queries = 41/min
+2026-08-03T15:42:47.229Z ERROR 1 --- [profile-service] [lettuce-nioEventLoop-4-1] i.l.core.protocol.ConnectionWatchdog      : Connection to redis-cache:6379 lost, reconnect attempt 1
+2026-08-03T15:42:47.884Z  WARN 1 --- [profile-service] [lettuce-nioEventLoop-4-1] o.s.d.r.c.RedisConnectionFailureException : Unable to connect to Redis, falling through to the database for this request
+2026-08-03T15:42:52.117Z  INFO 1 --- [profile-service] [nio-8086-exec-5] c.s.p.web.ProfileController              : GET /v1/profile/U-40118 200 in 74ms (cache bypass)
+2026-08-03T15:43:04.442Z  INFO 1 --- [profile-service] [lettuce-nioEventLoop-4-1] i.l.core.protocol.ConnectionWatchdog      : Reconnected to redis-cache:6379 after 17s, server reports uptime_in_seconds=19
+2026-08-03T15:43:04.905Z  WARN 1 --- [profile-service] [cache-manager-1] c.s.p.cache.ProfileCacheManager          : Redis reports 0 keys in db0, cache was flushed by the restart, 214883 entries lost
+2026-08-03T15:43:31.775Z  INFO 1 --- [profile-service] [nio-8086-exec-2] c.s.p.web.ProfileController              : GET /v1/profile/U-33812 200 in 81ms (cache miss, repopulated)
+2026-08-03T15:44:12.663Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : cache.gets{result=hit} ratio = 3.9%, db.queries = 248/min
+2026-08-03T15:44:58.331Z  WARN 1 --- [profile-service] [nio-8086-exec-7] c.s.p.repo.ProfileRepository             : Database read load elevated, 248 queries/min against a provisioned ceiling of 2000/min
+2026-08-03T15:45:40.229Z  INFO 1 --- [profile-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status: UP (db: UP, redis: UP, diskSpace: UP)
+2026-08-03T15:46:17.118Z  INFO 1 --- [profile-service] [nio-8086-exec-1] c.s.p.web.ProfileController              : GET /v1/profile/U-11204 200 in 68ms (cache miss, repopulated)
+2026-08-03T15:47:03.884Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : http.server.requests p99 = 0.21s, SLO 0.50s, error rate 0.00%
+2026-08-03T15:48:44.660Z  INFO 1 --- [profile-service] [nio-8086-exec-9] c.s.p.web.ProfileController              : GET /v1/profile/U-88213 200 in 12ms (cache hit)
+2026-08-03T15:49:22.442Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : cache.gets{result=hit} ratio = 31.4%, db.queries = 190/min
+2026-08-03T15:50:59.117Z  INFO 1 --- [profile-service] [nio-8086-exec-4] c.s.p.web.ProfileController              : GET /v1/profile/U-50221 200 in 9ms (cache hit)
+2026-08-03T15:52:31.905Z  WARN 1 --- [profile-service] [Hikari housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Pool stats (total=20, active=8, idle=12, waiting=0)
+2026-08-03T15:54:08.229Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : cache.gets{result=hit} ratio = 62.7%, db.queries = 118/min
+2026-08-03T15:55:44.663Z  INFO 1 --- [profile-service] [nio-8086-exec-6] c.s.p.web.ProfileController              : GET /v1/profile/U-71903 200 in 7ms (cache hit)
+2026-08-03T15:57:19.331Z  INFO 1 --- [profile-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status: UP (db: UP, redis: UP, diskSpace: UP)
+2026-08-03T15:58:52.774Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : cache.gets{result=hit} ratio = 81.0%, db.queries = 66/min
+2026-08-03T16:00:27.118Z  INFO 1 --- [profile-service] [nio-8086-exec-8] c.s.p.web.ProfileController              : GET /v1/profile/U-40118 200 in 6ms (cache hit)
+2026-08-03T16:02:03.442Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : http.server.requests p99 = 0.11s, SLO 0.50s, error rate 0.00%, 0 requests failed since 15:42
+2026-08-03T16:03:38.905Z  INFO 1 --- [profile-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : cache.gets{result=hit} ratio = 93.8%, db.queries = 48/min
+2026-08-03T16:05:14.660Z  INFO 1 --- [profile-service] [nio-8086-exec-3] c.s.p.web.ProfileController              : GET /v1/profile/U-33812 200 in 5ms (cache hit)

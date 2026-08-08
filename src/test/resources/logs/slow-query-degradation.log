@@ -1,0 +1,27 @@
+2026-08-04T09:02:14.118Z  INFO 1 --- [catalog-service] [scheduling-3] c.s.c.job.SupplierFeedImporter           : Supplier feed import started, 412000 rows
+2026-08-04T09:11:47.660Z  INFO 1 --- [catalog-service] [scheduling-3] c.s.c.job.SupplierFeedImporter           : Supplier feed import finished, product_variants now holds 8412339 rows (was 2104882)
+2026-08-04T09:12:03.229Z  INFO 1 --- [catalog-service] [nio-8085-exec-2] c.s.c.web.CatalogController              : GET /v1/catalog/search q=running+shoes 200 in 118ms
+2026-08-04T09:14:30.884Z  INFO 1 --- [catalog-service] [nio-8085-exec-5] c.s.c.web.CatalogController              : GET /v1/catalog/search q=laptop+bag 200 in 141ms
+2026-08-04T09:18:52.117Z  WARN 1 --- [catalog-service] [nio-8085-exec-1] o.h.e.i.StatisticalLoggingSessionEventListener : Slow query (1204ms): select v.* from product_variants v where v.attributes @> ? order by v.rank limit 50
+2026-08-04T09:21:19.442Z  INFO 1 --- [catalog-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : http.server.requests p99 = 1.42s, baseline 0.19s
+2026-08-04T09:24:05.775Z  WARN 1 --- [catalog-service] [nio-8085-exec-7] o.h.e.i.StatisticalLoggingSessionEventListener : Slow query (1663ms): select v.* from product_variants v where v.attributes @> ? order by v.rank limit 50
+2026-08-04T09:24:06.003Z  INFO 1 --- [catalog-service] [nio-8085-exec-7] c.s.c.web.CatalogController              : GET /v1/catalog/search q=office+chair 200 in 1712ms
+2026-08-04T09:27:33.660Z  INFO 1 --- [catalog-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status: UP (db: UP, diskSpace: UP, redis: UP)
+2026-08-04T09:29:41.229Z  WARN 1 --- [catalog-service] [nio-8085-exec-3] c.s.c.repo.VariantRepository             : Query plan for findByAttributes changed: Seq Scan on product_variants (cost=0.00..184221.00 rows=8412339)
+2026-08-04T09:31:02.905Z  INFO 1 --- [catalog-service] [nio-8085-exec-9] c.s.c.web.CatalogController              : GET /v1/catalog/search q=water+bottle 200 in 1588ms
+2026-08-04T09:33:18.331Z  WARN 1 --- [catalog-service] [nio-8085-exec-4] c.s.c.web.CatalogController              : GET /v1/catalog/search q=winter+jacket exceeded caller timeout after 5000ms, caller checkout-service will retry
+2026-08-04T09:33:23.774Z  INFO 1 --- [catalog-service] [nio-8085-exec-6] c.s.c.web.CatalogController              : GET /v1/catalog/search q=winter+jacket 200 in 1904ms (retry from checkout-service, succeeded)
+2026-08-04T09:35:44.118Z  INFO 1 --- [catalog-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : http.server.requests p99 = 1.81s, baseline 0.19s, error rate 0.00%
+2026-08-04T09:38:12.663Z  WARN 1 --- [catalog-service] [nio-8085-exec-2] o.h.e.i.StatisticalLoggingSessionEventListener : Slow query (1849ms): select v.* from product_variants v where v.attributes @> ? order by v.rank limit 50
+2026-08-04T09:40:55.442Z  INFO 1 --- [catalog-service] [nio-8085-exec-8] c.s.c.web.CatalogController              : GET /v1/catalog/search q=desk+lamp 200 in 1622ms
+2026-08-04T09:43:29.117Z  WARN 1 --- [catalog-service] [Hikari housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Pool stats (total=20, active=13, idle=7, waiting=0)
+2026-08-04T09:46:04.884Z  WARN 1 --- [catalog-service] [nio-8085-exec-5] c.s.c.web.CatalogController              : GET /v1/catalog/search q=bluetooth+speaker exceeded caller timeout after 5000ms, caller checkout-service will retry
+2026-08-04T09:46:11.226Z  INFO 1 --- [catalog-service] [nio-8085-exec-1] c.s.c.web.CatalogController              : GET /v1/catalog/search q=bluetooth+speaker 200 in 1771ms (retry from checkout-service, succeeded)
+2026-08-04T09:48:37.905Z  INFO 1 --- [catalog-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : http.server.requests p99 = 1.79s, baseline 0.19s, error rate 0.00%, timeout-and-retry rate 2.1%
+2026-08-04T09:51:14.660Z  INFO 1 --- [catalog-service] [nio-8085-exec-3] c.s.c.web.CatalogController              : GET /v1/catalog/detail sku=SKU-3391 200 in 47ms
+2026-08-04T09:53:48.229Z  WARN 1 --- [catalog-service] [nio-8085-exec-7] o.h.e.i.StatisticalLoggingSessionEventListener : Slow query (1795ms): select v.* from product_variants v where v.attributes @> ? order by v.rank limit 50
+2026-08-04T09:56:22.331Z  INFO 1 --- [catalog-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status: UP (db: UP, diskSpace: UP, redis: UP)
+2026-08-04T09:58:59.774Z  INFO 1 --- [catalog-service] [nio-8085-exec-4] c.s.c.web.CatalogController              : GET /v1/catalog/search q=yoga+mat 200 in 1683ms
+2026-08-04T10:01:33.118Z  INFO 1 --- [catalog-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : http.server.requests p99 = 1.84s, baseline 0.19s, error rate 0.00%, no requests dropped in last 60m
+2026-08-04T10:04:07.442Z  WARN 1 --- [catalog-service] [nio-8085-exec-9] c.s.c.repo.VariantRepository             : findByAttributes has not used index idx_variants_attributes_gin since 09:11, planner prefers Seq Scan
+2026-08-04T10:06:41.663Z  INFO 1 --- [catalog-service] [nio-8085-exec-2] c.s.c.web.CatalogController              : GET /v1/catalog/search q=phone+case 200 in 1601ms

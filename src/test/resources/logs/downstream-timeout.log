@@ -1,0 +1,30 @@
+2026-08-07T14:02:11.309Z  INFO 1 --- [checkout-service] [nio-8082-exec-3] c.s.c.web.CheckoutController             : POST /v1/checkout cart=CART-88213 items=4
+2026-08-07T14:02:11.470Z  INFO 1 --- [checkout-service] [nio-8082-exec-3] c.s.c.client.InventoryClient             : GET http://inventory-service:8080/v1/stock/reserve 200 in 161ms
+2026-08-07T14:02:11.512Z  INFO 1 --- [checkout-service] [nio-8082-exec-3] c.s.c.web.CheckoutController             : Checkout CART-88213 completed in 203ms
+2026-08-07T14:03:40.118Z  INFO 1 --- [checkout-service] [nio-8082-exec-5] c.s.c.client.InventoryClient             : GET http://inventory-service:8080/v1/stock/reserve 200 in 2841ms
+2026-08-07T14:04:02.663Z  WARN 1 --- [checkout-service] [nio-8082-exec-5] c.s.c.client.InventoryClient             : inventory-service p99 latency 4.8s over last 60s, baseline 180ms
+2026-08-07T14:04:55.001Z  INFO 1 --- [checkout-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : Published 188 meters to statsd
+2026-08-07T14:05:18.774Z  WARN 1 --- [checkout-service] [nio-8082-exec-1] c.s.c.client.InventoryClient             : GET http://inventory-service:8080/v1/stock/reserve 504 in 30014ms, body: <html><head><title>504 Gateway Time-out</title></head><body><center><h1>504 Gateway Time-out</h1></center><hr><center>nginx/1.25.3</center></body></html>
+2026-08-07T14:05:18.780Z ERROR 1 --- [checkout-service] [nio-8082-exec-1] c.s.c.web.CheckoutController             : Checkout CART-88401 failed
+org.springframework.web.client.HttpServerErrorException$GatewayTimeout: 504 Gateway Time-out on GET request for "http://inventory-service:8080/v1/stock/reserve"
+	at org.springframework.web.client.DefaultResponseErrorHandler.handleError(DefaultResponseErrorHandler.java:174)
+	at com.shivansh.checkout.client.InventoryClient.reserve(InventoryClient.java:71)
+	at com.shivansh.checkout.web.CheckoutController.checkout(CheckoutController.java:88)
+2026-08-07T14:05:41.226Z  WARN 1 --- [checkout-service] [nio-8082-exec-8] c.s.c.client.InventoryClient             : GET http://inventory-service:8080/v1/stock/reserve 504 in 30009ms
+2026-08-07T14:06:03.918Z  INFO 1 --- [checkout-service] [nio-8082-exec-2] c.s.c.client.PricingClient               : GET http://pricing-service:8080/v1/quote 200 in 74ms
+2026-08-07T14:06:12.404Z  INFO 1 --- [checkout-service] [nio-8082-exec-2] c.s.c.client.PaymentClient               : POST http://payment-service:8080/v1/payments/authorize 200 in 312ms
+2026-08-07T14:06:44.880Z  WARN 1 --- [checkout-service] [nio-8082-exec-6] i.g.r.c.CircuitBreakerStateMachine       : CircuitBreaker 'inventory' failure rate is 71.4%, threshold 50.0%
+2026-08-07T14:06:44.881Z  WARN 1 --- [checkout-service] [nio-8082-exec-6] i.g.r.c.CircuitBreakerStateMachine       : CircuitBreaker 'inventory' changed state from CLOSED to OPEN
+2026-08-07T14:06:45.117Z ERROR 1 --- [checkout-service] [nio-8082-exec-6] c.s.c.web.CheckoutController             : Checkout CART-88455 failed: CallNotPermittedException: CircuitBreaker 'inventory' is OPEN and does not permit further calls
+2026-08-07T14:07:02.339Z  INFO 1 --- [checkout-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status: UP (db: UP, diskSpace: UP, redis: UP)
+2026-08-07T14:07:30.884Z  WARN 1 --- [checkout-service] [nio-8082-exec-4] c.s.c.web.CheckoutController             : Returning 503 for CART-88470, inventory reservation unavailable
+2026-08-07T14:08:01.775Z  INFO 1 --- [checkout-service] [nio-8082-exec-9] c.s.c.web.CheckoutController             : GET /v1/checkout/CART-88213 200 in 38ms
+2026-08-07T14:08:44.229Z  INFO 1 --- [checkout-service] [scheduling-2] i.g.r.c.CircuitBreakerStateMachine       : CircuitBreaker 'inventory' changed state from OPEN to HALF_OPEN
+2026-08-07T14:09:14.246Z  WARN 1 --- [checkout-service] [scheduling-2] c.s.c.client.InventoryClient             : GET http://inventory-service:8080/v1/stock/reserve 504 in 30011ms
+2026-08-07T14:09:14.250Z  WARN 1 --- [checkout-service] [scheduling-2] i.g.r.c.CircuitBreakerStateMachine       : CircuitBreaker 'inventory' changed state from HALF_OPEN to OPEN
+2026-08-07T14:09:50.663Z  INFO 1 --- [checkout-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : Published 188 meters to statsd
+2026-08-07T14:10:22.118Z ERROR 1 --- [checkout-service] [nio-8082-exec-7] c.s.c.web.CheckoutController             : Checkout CART-88512 failed: CallNotPermittedException: CircuitBreaker 'inventory' is OPEN and does not permit further calls
+2026-08-07T14:10:58.907Z  WARN 1 --- [checkout-service] [nio-8082-exec-3] c.s.c.web.CheckoutController             : Checkout success rate over last 5m is 12%, 388 carts rejected
+2026-08-07T14:11:30.442Z  INFO 1 --- [checkout-service] [nio-8082-exec-1] c.s.c.client.PricingClient               : GET http://pricing-service:8080/v1/quote 200 in 68ms
+2026-08-07T14:11:44.019Z  WARN 1 --- [checkout-service] [scheduling-2] i.g.r.c.CircuitBreakerStateMachine       : CircuitBreaker 'inventory' changed state from OPEN to HALF_OPEN
+2026-08-07T14:12:14.031Z  WARN 1 --- [checkout-service] [scheduling-2] c.s.c.client.InventoryClient             : GET http://inventory-service:8080/v1/stock/reserve 504 in 30013ms

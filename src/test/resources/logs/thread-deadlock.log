@@ -1,0 +1,44 @@
+2026-08-06T11:20:14.882Z  INFO 1 --- [pricing-service] [nio-8084-exec-2] c.s.p.web.QuoteController                : GET /v1/quote sku=SKU-4471 region=IN 200 in 33ms
+2026-08-06T11:21:03.117Z  INFO 1 --- [pricing-service] [scheduling-1] c.s.p.rules.RuleSetReloader              : Reloading pricing rule set, revision 8841 -> 8842
+2026-08-06T11:21:03.229Z  INFO 1 --- [pricing-service] [nio-8084-exec-5] c.s.p.web.QuoteController                : POST /v1/quote/bulk items=120 200 in 412ms
+2026-08-06T11:21:44.660Z  INFO 1 --- [pricing-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : Published 142 meters to statsd
+2026-08-06T11:22:19.005Z  WARN 1 --- [pricing-service] [nio-8084-exec-7] c.s.p.rules.RuleSetCache                 : Acquiring write lock on RuleSetCache took 3211ms
+2026-08-06T11:22:51.441Z  WARN 1 --- [pricing-service] [scheduling-1] c.s.p.rules.RuleSetReloader              : Rule set reload 8842 still in progress after 108s
+2026-08-06T11:23:30.774Z  WARN 1 --- [pricing-service] [nio-8084-exec-3] c.s.p.web.QuoteController                : GET /v1/quote sku=SKU-4471 200 in 18442ms (slow request threshold 2000ms)
+2026-08-06T11:24:02.118Z  WARN 1 --- [pricing-service] [thread-monitor-1] c.s.p.obs.ThreadHealthMonitor            : 14 of 50 worker threads BLOCKED for over 60s
+2026-08-06T11:24:33.902Z ERROR 1 --- [pricing-service] [thread-monitor-1] c.s.p.obs.ThreadHealthMonitor            : ThreadMXBean.findDeadlockedThreads() reported 2 deadlocked threads, dumping
+Found one Java-level deadlock:
+=============================
+"nio-8084-exec-7":
+  waiting to lock monitor 0x00007f2c9c0a4e80 (object 0x00000006c1a83f18, a com.shivansh.pricing.rules.RuleSetCache),
+  which is held by "scheduling-1"
+"scheduling-1":
+  waiting to lock monitor 0x00007f2c9c0b1240 (object 0x00000006c1b02aa0, a com.shivansh.pricing.rules.RegionIndex),
+  which is held by "nio-8084-exec-7"
+
+Java stack information for the threads listed above:
+===================================================
+"nio-8084-exec-7":
+	at com.shivansh.pricing.rules.RuleSetCache.put(RuleSetCache.java:94)
+	- waiting to lock <0x00000006c1a83f18> (a com.shivansh.pricing.rules.RuleSetCache)
+	at com.shivansh.pricing.rules.RegionIndex.refresh(RegionIndex.java:57)
+	- locked <0x00000006c1b02aa0> (a com.shivansh.pricing.rules.RegionIndex)
+"scheduling-1":
+	at com.shivansh.pricing.rules.RegionIndex.rebuild(RegionIndex.java:71)
+	- waiting to lock <0x00000006c1b02aa0> (a com.shivansh.pricing.rules.RegionIndex)
+	at com.shivansh.pricing.rules.RuleSetCache.swap(RuleSetCache.java:132)
+	- locked <0x00000006c1a83f18> (a com.shivansh.pricing.rules.RuleSetCache)
+
+Found 1 deadlock.
+2026-08-06T11:25:10.226Z  WARN 1 --- [pricing-service] [thread-monitor-1] c.s.p.obs.ThreadHealthMonitor            : 29 of 50 worker threads BLOCKED for over 60s
+2026-08-06T11:25:44.663Z  INFO 1 --- [pricing-service] [nio-8084-exec-1] c.s.p.web.QuoteController                : GET /v1/quote sku=SKU-9902 region=US 200 in 47ms
+2026-08-06T11:26:18.905Z  WARN 1 --- [pricing-service] [nio-8084-exec-9] o.a.c.util.LimitLatch                    : Maximum connection count reached, 200 of 200 in use
+2026-08-06T11:26:52.331Z ERROR 1 --- [pricing-service] [nio-8084-exec-4] c.s.p.web.QuoteController                : POST /v1/quote/bulk failed: java.util.concurrent.TimeoutException: no worker available within 30000ms
+2026-08-06T11:27:20.117Z  WARN 1 --- [pricing-service] [thread-monitor-1] c.s.p.obs.ThreadHealthMonitor            : 47 of 50 worker threads BLOCKED for over 60s
+2026-08-06T11:27:55.442Z  INFO 1 --- [pricing-service] [health-check-1] o.s.b.a.h.HealthEndpoint                 : Health status: UP (db: UP, diskSpace: UP, redis: UP)
+2026-08-06T11:28:30.884Z ERROR 1 --- [pricing-service] [nio-8084-exec-6] c.s.p.web.QuoteController                : GET /v1/quote sku=SKU-4471 failed: java.util.concurrent.TimeoutException: no worker available within 30000ms
+2026-08-06T11:29:04.660Z  WARN 1 --- [pricing-service] [nio-8084-exec-8] c.s.p.web.QuoteController                : Quote success rate over last 5m is 6%, callers checkout-service and order-service affected
+2026-08-06T11:29:41.229Z  INFO 1 --- [pricing-service] [metrics-publisher-1] i.m.c.i.MeterRegistry                    : Published 142 meters to statsd
+2026-08-06T11:30:12.775Z ERROR 1 --- [pricing-service] [thread-monitor-1] c.s.p.obs.ThreadHealthMonitor            : ThreadMXBean.findDeadlockedThreads() reported 2 deadlocked threads, dumping suppressed (repeat)
+2026-08-06T11:30:50.118Z  WARN 1 --- [pricing-service] [scheduling-1] c.s.p.rules.RuleSetReloader              : Rule set reload 8842 still in progress after 587s
+2026-08-06T11:31:22.903Z ERROR 1 --- [pricing-service] [nio-8084-exec-2] c.s.p.web.QuoteController                : POST /v1/quote/bulk failed: java.util.concurrent.TimeoutException: no worker available within 30000ms
