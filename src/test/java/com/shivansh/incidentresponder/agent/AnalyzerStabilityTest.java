@@ -4,6 +4,7 @@ import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.service.AnalyzerService;
 import me.paulschwarz.springdotenv.spring.DotenvApplicationInitializer;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +58,9 @@ class AnalyzerStabilityTest {
     /** Same TPM reasoning as the baseline runner: three calls in a window stays inside 12k. */
     private static final Duration PACING = Duration.ofSeconds(25);
 
+    /** A full window's wait, so a retry starts from a clean per-minute budget. */
+    private static final Duration RATE_LIMIT_BACKOFF = Duration.ofSeconds(65);
+
     @Autowired
     private AnalyzerService analyzerService;
 
@@ -77,9 +82,9 @@ class AnalyzerStabilityTest {
 
         for (int run = 1; run <= RUNS; run++) {
             if (run > 1) {
-                pause();
+                pause(PACING);
             }
-            LogAnalysis analysis = analyzerService.analyze(logs, null);
+            LogAnalysis analysis = analyse(logs, answers, run);
             answers.add(analysis.errorType());
             System.out.printf("  run %d  errorType=%-22s severity=%-8s confidence=%.2f%n",
                     run, analysis.errorType(), analysis.severity(), analysis.confidence());
@@ -101,9 +106,57 @@ class AnalyzerStabilityTest {
                 .hasSize(1);
     }
 
-    private void pause() {
+    /**
+     * One call, retried once if the free tier pushes back.
+     * <p>
+     * A rate limit means the experiment could not be run, which is not the same as the
+     * experiment failing. Running out of daily quota mid-run would otherwise surface as a
+     * red test that looks exactly like errorType being unstable - and would discard the runs
+     * already collected. So the partial result is printed and the test is ABORTED (reported
+     * as skipped) rather than failed.
+     */
+    private LogAnalysis analyse(String logs, List<ErrorType> collectedSoFar, int run) {
         try {
-            Thread.sleep(PACING.toMillis());
+            return analyzerService.analyze(logs, null);
+        } catch (RuntimeException first) {
+            if (!isRateLimit(first)) {
+                throw first;
+            }
+            System.out.printf("  run %d  rate limited, backing off %ds and retrying once%n",
+                    run, RATE_LIMIT_BACKOFF.toSeconds());
+            pause(RATE_LIMIT_BACKOFF);
+            try {
+                return analyzerService.analyze(logs, null);
+            } catch (RuntimeException second) {
+                if (!isRateLimit(second)) {
+                    throw second;
+                }
+                System.out.printf("  collected %d of %d runs before quota ran out: %s%n",
+                        collectedSoFar.size(), RUNS, collectedSoFar);
+                System.out.println("=================================================================");
+                return Assumptions.abort(
+                        "Groq quota exhausted after %d of %d runs - stability was not measured, not disproved. %s"
+                                .formatted(collectedSoFar.size(), RUNS, second.getMessage()));
+            }
+        }
+    }
+
+    /** Both the per-minute and the per-day ceilings arrive as a 429. */
+    private static boolean isRateLimit(Throwable t) {
+        for (Throwable cause = t; cause != null && cause.getCause() != cause; cause = cause.getCause()) {
+            String message = cause.getMessage();
+            if (message != null && (message.contains("429")
+                    || message.toLowerCase(Locale.ROOT).contains("rate limit")
+                    || message.toLowerCase(Locale.ROOT).contains("rate_limit"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void pause(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Stability run interrupted", e);
