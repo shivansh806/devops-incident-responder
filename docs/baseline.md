@@ -82,11 +82,11 @@ the baseline a lie. Expectations live in the runner.
 
 Four fields are checked per sample, plus a verbatim check on every evidence line.
 
-- **errorType** — matched against a set of accepted names, compared after lowercasing and
-  stripping non-alphanumerics. Naming varies run to run; `DiskSpaceExhausted` and
-  `DiskSpaceExhaustion` are the same answer. Widening a set for a suffix is morphology and
-  costs nothing; widening it for a different *meaning* would destroy what the sample tests, so
-  don't.
+- **errorType** — exact match against a single `ErrorType` constant. This used to be a set of
+  accepted spellings compared after lowercasing and stripping punctuation, because free text
+  drifted between runs; the closed enum retired that whole problem, along with the recurring
+  argument about whether a given spelling was near enough. See *errorType is a closed enum*
+  below.
 - **affectedService** — a set too, because in a sample built to test something else the origin
   can be genuinely arguable and shouldn't manufacture a failure.
 - **severity** — a set where more than one call is defensible; a single value where the sample
@@ -104,6 +104,114 @@ by construction — `AnalyzerService` copies the caller's name in regardless of 
 says — and is already covered by `AnalyzerServiceTest`. Inference is where the agent can be
 wrong.
 
+## errorType is a closed enum
+
+`errorType` was a free-text `String` until the baseline caught it drifting: the same sample
+returned `RedisConnectionLoss` on one run and `RedisConnectionFailure` on the next. Same
+model, same temperature, same prompt, same input. Both answers are reasonable, and that is
+precisely the problem — week 2 matches past incidents on this field and week 3 hashes it into
+a Redis cache key, so an identifier that moves breaks both regardless of which spelling is
+"right".
+
+The deciding evidence was already in our own runs. `severity` has been a Java enum from the
+start and returned the identical value for every sample across every run. `errorType` was
+prose and drifted twice under identical conditions. That is a controlled comparison: the
+difference is not the model, it is that one field's allowed values are part of the type and
+the other's were a request written in prose. Prompts shift behaviour; they do not constrain
+it. If a value has to be stable, it belongs in the type.
+
+`ErrorType` now holds 14 failure categories plus `NotALogFile` and `Other`. LangChain4j
+derives the format instructions from the return type, so those constants are sent to the
+model as the permitted set — the same machinery that already kept `severity` honest.
+
+### The naming-convention mismatch, and why the lenient parser is load-bearing
+
+Two conventions are unavoidably in play at once:
+
+- LangChain4j builds the schema from `getEnumConstants()` and `name()`, so the model is shown
+  `CONNECTION_POOL_EXHAUSTED`.
+- The API contract predates the enum and serialises PascalCase. The brief's example JSON and
+  `AnalyzeControllerTest` both assume `ConnectionPoolExhausted`, and an unrelated wire-format
+  change had no business riding along with this one.
+
+`@JsonValue` pins the wire format, but on its own it would make Jackson *expect* the PascalCase
+form on the way in — while the schema is advertising the `name()` form. That mismatch would
+fail to parse on every single call.
+
+The `@JsonCreator` factory is what stops the collision: it lowercases the model's answer and
+strips non-alphanumerics before matching, so `CONNECTION_POOL_EXHAUSTED`,
+`ConnectionPoolExhausted`, `connection-pool-exhausted` and `connection pool exhausted` all
+resolve to one constant. So the leniency is not defensive politeness towards a sloppy model —
+it is the thing that makes the two conventions coexist.
+
+**Its boundary matters as much as its existence.** It ignores case and punctuation only. It
+will never map one failure class onto a different one: `RedisConnectionFailure` does *not*
+become `CACHE_UNAVAILABLE`, it becomes `OTHER` and is logged with the raw value. That is
+deserialisation robustness, not a synonym table — a synonym table would be unbounded
+maintenance, and worse, it would hide the fact that a constant is missing.
+
+`OTHER` is therefore a measurement rather than a failure. A high `OTHER` rate across the
+samples is the evidence that the vocabulary needs another constant. Grow it from that, not
+from guessing.
+
+### A deliberate omission
+
+There is no generic `AUTHENTICATION_FAILURE` constant. Including one would hand the model an
+easy symptom-level answer for `auth-failure-spike`, whose whole point is that the cause is an
+expired signing certificate — and getting that sample to name the cause cost a full baseline
+run to establish. Nothing in the current sample set needs a generic auth value, so it was left
+out under the same "grow from evidence" rule. This is a judgement call and a reversible one:
+a real incident with genuinely bad credentials and no deeper cause would justify adding it.
+
+### Status
+
+Not yet verified end to end. The acceptance test is `AnalyzerStabilityTest`, which sends the
+sample that actually drifted through three times and asserts `errorType` is identical. Its
+first run got two of three — both `CACHE_UNAVAILABLE`, which is encouraging on both counts
+(stable, and covered by the vocabulary rather than falling to `OTHER`) — before the daily
+token cap stopped the third. Two agreeing runs is not the check passing. A full 8-sample run,
+which is where the `OTHER` rate gets measured, is queued behind a clean 3x.
+
+## Known limitations
+
+Deliberately left, not overlooked.
+
+**`slow-query-degradation` names a symptom.** Under free text this sample returned
+`DatabaseQueryPerformanceIssue` on every run, even though the logs state the cause twice
+(`planner prefers Seq Scan`, `has not used index idx_variants_attributes_gin`). The
+cause-over-symptom prompt rule fixed the equivalent problem in `auth-failure-spike` and did
+not move this one at all, which suggests the two are different failures: the rule works when
+the cause is a discrete logged event and not when it is a gradual regression.
+
+It was left for three reasons. Widening the accepted set to admit the symptom name would have
+been widening for *meaning*, which destroys what the sample tests. Adding a second prompt rule
+aimed at gradual degradation risked the same bleed that the cause rule caused in
+`firstOccurrence`. And the enum has since changed the mechanics of this field entirely — the
+expected answer is now `SLOW_QUERY`, chosen from a closed list — so anything done before
+re-measuring would be fixing a problem that may no longer exist. **Unverified since the enum
+landed.**
+
+**`cache-miss-spike` returns MEDIUM where the harness expects LOW.** Consistent across every
+run. The expectation is deliberately strict and the model's answer is not clearly wrong: Redis
+dropped, 214,883 cache entries were lost and one request was served on a cache bypass, so
+"partial failure" (MEDIUM) is defensible even though nothing failed for a user, p99 stayed
+under SLO and the hit rate recovered to 93.8% (LOW).
+
+It was left because the interesting question is not this sample's verdict but the pattern
+behind it: **no sample in the set has ever returned LOW.** That would be a real finding about
+severity calibration — or it would be an artefact of having exactly one LOW sample, written by
+the same person who wrote the expectation. One sample cannot tell those apart. The honest fix
+is more low-severity samples before any prompt change, not tuning the prompt until this one
+case flips.
+
+### Also open, and not limitations
+
+Distinct from the above, these are unfinished work rather than accepted trade-offs:
+`auth-failure-spike` began returning `api-gateway` for `affectedService` — the victim, not the
+origin — over two consecutive runs, so it is confirmed rather than variance; and confidence
+calibration is untouched, still sitting at 0.95 on nearly everything including answers that
+turned out to be wrong.
+
 ## It reports, it does not assert
 
 The runner contains no assertions and always passes. Two reasons:
@@ -116,6 +224,15 @@ The runner contains no assertions and always passes. Two reasons:
 
 A per-sample exception (a 429, a parse failure) is captured and reported as `CALL FAILED`
 rather than thrown, so one bad sample never costs the rest of the run.
+
+`AnalyzerStabilityTest` is the deliberate exception: it *does* assert. The distinction is what
+each one measures. The baseline calibrates against a model's judgement, where a miss can be an
+off day. Stability is a guarantee the type system now makes, so a failure there means the
+mechanism is broken rather than the model being unlucky. It draws the same line for
+infrastructure: a rate limit means the experiment could not be run, which is not the
+experiment failing, so it retries once and then aborts as *skipped* — printing the runs it did
+collect. Its first real run proved why that matters, surfacing a quota exhaustion as a red
+test that looked exactly like instability.
 
 ## Reading the output
 
