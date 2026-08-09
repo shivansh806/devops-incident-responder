@@ -51,8 +51,17 @@ This is the concrete justification for Week 3's Redis caching layer.
 ## Known decisions to revisit
 - Week 3: Kafka consumer needs its own ObjectMapper without the
   unknown-property WARN handler (would flood logs at event rate)
+- Week 2: errorType is a closed enum with no free-text companion field.
+  keyEvidence carries the specifics and the Resolver produces the
+  human-readable root cause, so a separate label field was deliberately
+  deferred rather than ride an API change along with the enum. Revisit
+  if the Resolver turns out to need one.
+- Watch the OTHER rate on the 8-sample baseline. A high rate means the
+  vocabulary is too small — grow it from that evidence, not by guessing.
 
 ## Prompt engineering learnings
-- Examples override rules. A worked example without timezones taught the
-  model to skip UTC conversion even though the rule said otherwise.
-  Fix the example, don't add another rule.
+- Examples override rules. One worked example without timezones taught the
+    model to skip UTC conversion. Two examples forced it to infer the rule.
+- Prompts are probabilistic, types are guarantees. severity (enum) never
+  drifted in 6 runs; errorType (String) drifted twice with identical input.
+  If a value must be stable, encode it in the type, not the prompt.
