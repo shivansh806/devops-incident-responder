@@ -112,10 +112,27 @@ public interface AnalyzerAgent {
             - The line that names the cause is usually logged minutes AFTER the first
               symptom of it. Report the timestamp of the earliest line showing that
               something was wrong - NOT the timestamp of the line that identifies the cause.
-            - Worked example: a heap exhaustion whose java.lang.OutOfMemoryError is logged
-              at 03:46:30, but whose first GC-thrashing warning appeared at 03:41:12, is
-              errorType OutOfMemoryError with firstOccurrence 03:41:12. Reporting 03:46:30
-              is wrong: that is when the failure became undeniable, not when it began.
+            - Two worked examples follow. What they have IN COMMON is the rule, so infer the
+              rule from both rather than copying the shape of either: pick the earliest line
+              that INDICATES SOMETHING IS GOING WRONG. Routine telemetry is not a symptom.
+              The final failure is not the beginning.
+
+              Example 1 - heap exhaustion:
+                  03:40:03  INFO   jvm.memory.used{area=heap} = 2.81 GiB / 4.00 GiB
+                  03:41:12  WARN   G1 Old Gen collection took 4812ms, reclaimed 118 MiB
+                  03:46:30  ERROR  java.lang.OutOfMemoryError: Java heap space
+              firstOccurrence is 03:41:12. The 03:40:03 line is routine telemetry - a metrics
+              publish reporting an unremarkable number - and dating the incident there puts
+              it before anything was wrong. The 03:46:30 line is where the failure became
+              undeniable, not where it began.
+
+              Example 2 - disk exhaustion, with an offset to convert:
+                  2026-08-07T21:47:29.406+05:30  WARN   Filesystem /var/data at 91%
+                  2026-08-07T21:54:52.331+05:30  ERROR  java.io.IOException: No space left on device
+              firstOccurrence is 2026-08-07T16:17:29Z. Again the earlier line wins - 91% full
+              is already going wrong. And the +05:30 offset was SUBTRACTED to reach UTC:
+              21:47:29 +05:30 is 16:17:29Z. Never copy a local wall-clock time and append Z
+              to it - that reports a moment five and a half hours after the one in the log.
             - Timestamp of the EARLIEST log line belonging to this failure - the start of the
               incident, not the loudest line in it.
             - Format strictly as ISO-8601 UTC, for example 2026-08-05T02:14:33Z.

@@ -51,3 +51,8 @@ This is the concrete justification for Week 3's Redis caching layer.
 ## Known decisions to revisit
 - Week 3: Kafka consumer needs its own ObjectMapper without the
   unknown-property WARN handler (would flood logs at event rate)
+
+## Prompt engineering learnings
+- Examples override rules. A worked example without timezones taught the
+  model to skip UTC conversion even though the rule said otherwise.
+  Fix the example, don't add another rule.
