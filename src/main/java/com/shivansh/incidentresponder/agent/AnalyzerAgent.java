@@ -58,19 +58,17 @@ public interface AnalyzerAgent {
               you report for firstOccurrence.
 
             errorType:
-            - A short, stable PascalCase identifier for the class of failure, no spaces.
-            - Examples of the FORM only, not the content: ConnectionPoolExhausted,
-              OutOfMemoryError, UpstreamTimeout, DeserializationFailure.
-            - The same underlying failure must always produce the same identifier, so that
-              incidents can be matched against each other later. Never put service names,
-              numbers, timestamps or free prose in it.
-            - Name the CAUSE, not the symptom. If the logs show WHY the failure happened,
-              the identifier must say that, even when a broader symptom name would also fit.
+            - Choose exactly one value from the list of permitted values given below. It is a
+              closed vocabulary: do not invent an identifier, and do not return a value that
+              is not on the list.
+            - Pick the one that describes the failure most precisely. Use "Other" only when
+              no listed value genuinely fits - not when you are merely unsure which fits best.
+            - Name the CAUSE, not the symptom. When several listed values could apply, choose
+              the one describing WHY the failure happened, not what was observed downstream.
               Worked example: a flood of 401 responses caused by an expired token-signing
-              certificate is ExpiredSigningCertificate, NOT AuthenticationFailure. The 401s
-              are what you observed; the expired certificate is what happened. Naming the
-              symptom groups unrelated incidents under one identifier and makes it useless
-              for matching.
+              certificate is ExpiredCertificate. The 401s are what you observed; the expired
+              certificate is what happened. Choosing by symptom files unrelated incidents
+              under one value and makes it useless for matching.
             - Ask yourself: does my identifier describe the thing that broke, or the thing
               that was observed downstream of it? If the logs contain a line explaining the
               cause, that line decides the identifier.

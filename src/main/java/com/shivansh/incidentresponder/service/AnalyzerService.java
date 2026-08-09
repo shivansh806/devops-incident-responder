@@ -2,6 +2,7 @@ package com.shivansh.incidentresponder.service;
 
 import com.shivansh.incidentresponder.agent.AnalyzerAgent;
 import com.shivansh.incidentresponder.agent.AnalyzerOutput;
+import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.model.Severity;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +44,6 @@ public class AnalyzerService {
     private static final Set<String> NULL_LIKE = Set.of("null", "none", "unknown", "n/a", "na", "-");
 
     private static final String UNKNOWN_SERVICE = "unknown";
-    private static final String UNKNOWN_ERROR_TYPE = "UnknownError";
 
     private final AnalyzerAgent analyzerAgent;
 
@@ -93,7 +93,7 @@ public class AnalyzerService {
 
     private LogAnalysis toAnalysis(AnalyzerOutput output, String knownService) {
         return new LogAnalysis(
-                orDefault(output.errorType(), UNKNOWN_ERROR_TYPE),
+                errorTypeOrDefault(output.errorType()),
                 affectedService(output.affectedService(), knownService),
                 severityOrDefault(output.severity()),
                 parseFirstOccurrence(output.firstOccurrence()),
@@ -119,6 +119,19 @@ public class AnalyzerService {
 
     private static String orDefault(String value, String fallback) {
         return isMissing(value) ? fallback : value.trim();
+    }
+
+    /**
+     * A null here means the model left the field out entirely. An unrecognised <em>value</em>
+     * never reaches this point - {@link ErrorType#fromModel} has already turned it into
+     * {@code OTHER} and logged what it was. Both end up as OTHER; the logs tell them apart.
+     */
+    private static ErrorType errorTypeOrDefault(ErrorType errorType) {
+        if (errorType == null) {
+            log.warn("Model omitted errorType, defaulting to OTHER");
+            return ErrorType.OTHER;
+        }
+        return errorType;
     }
 
     private static Severity severityOrDefault(Severity severity) {

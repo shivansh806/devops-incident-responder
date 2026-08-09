@@ -1,5 +1,6 @@
 package com.shivansh.incidentresponder.agent;
 
+import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.Severity;
 
 import java.util.List;
@@ -20,7 +21,7 @@ import java.util.List;
  * </ol>
  */
 public record AnalyzerOutput(
-        String errorType,
+        ErrorType errorType,
         String affectedService,
         Severity severity,
         String firstOccurrence,

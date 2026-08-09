@@ -14,7 +14,8 @@ import java.util.List;
  * It is <em>not</em> the shape the model produces; see
  * {@link com.shivansh.incidentresponder.agent.AnalyzerOutput}.
  *
- * @param errorType       stable PascalCase identifier for the failure class, e.g. {@code ConnectionPoolExhausted}
+ * @param errorType       failure class from a closed vocabulary, so it stays stable enough to hash
+ *                        and to match past incidents against; see {@link ErrorType}
  * @param affectedService service where the failure originated, or {@code "unknown"}
  * @param severity        blast radius of the incident
  * @param firstOccurrence earliest log line belonging to this failure; null when the logs carry no parseable timestamp
@@ -22,7 +23,7 @@ import java.util.List;
  * @param confidence      calibrated 0.0-1.0 score for how well the evidence supports the diagnosis
  */
 public record LogAnalysis(
-        String errorType,
+        ErrorType errorType,
         String affectedService,
         Severity severity,
         Instant firstOccurrence,
