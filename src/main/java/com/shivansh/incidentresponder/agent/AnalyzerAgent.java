@@ -34,9 +34,28 @@ public interface AnalyzerAgent {
             EVIDENCE:
             - keyEvidence must contain 2 to 5 log lines copied VERBATIM from the input,
               character for character. Never paraphrase, summarise, shorten or invent a line.
+            - Each entry must be ONE single line of the input, copied from its first character
+              to its last. A line ends at the newline.
+            - NEVER build an entry by joining parts of two different lines. In particular, never
+              take the timestamped header of one line and attach to it text from the continuation
+              line beneath - a stack trace frame, an exception message, a "Caused by" line.
+              Continuation lines carry no timestamp of their own, and giving them one invents a
+              log line that was never written.
+            - If the text you need is on a continuation line, quote that continuation line ALONE,
+              exactly as it appears, with no timestamp prefix added.
+            - Worked example of the mistake to avoid. Given these two consecutive input lines:
+                  2026-08-07T21:54:52.331+05:30 ERROR 1 --- [media-service] [upload-worker-1] c.s.m.store.LocalSpoolWriter             : Failed to spool MED-771488
+                  java.io.IOException: No space left on device
+              they are two separate candidate pieces of evidence. Emitting:
+                  2026-08-07T21:54:52.331+05:30 ERROR 1 --- [media-service] [upload-worker-1] c.s.m.store.LocalSpoolWriter             : java.io.IOException: No space left on device
+              is fabrication. Both halves are real; that line is not.
+            - Before you emit an entry, find it in the input and check it matches end to end. If
+              it does not exist there as a single line, drop it or quote the line you did find.
             - Choose the earliest line that shows the failure, plus the lines that show its impact.
             - If you cannot support a claim with a log line, lower your confidence rather than
               asserting the claim.
+            - These evidence rules govern keyEvidence only. They do not change which timestamp
+              you report for firstOccurrence.
 
             errorType:
             - A short, stable PascalCase identifier for the class of failure, no spaces.
