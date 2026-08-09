@@ -1,6 +1,7 @@
 package com.shivansh.incidentresponder.controller;
 
 import com.shivansh.incidentresponder.config.JacksonConfig;
+import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.model.Severity;
 import com.shivansh.incidentresponder.service.AnalysisFailedException;
@@ -44,7 +45,7 @@ class AnalyzeControllerTest {
     @Test
     void returnsTheStructuredAnalysis() throws Exception {
         given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(new LogAnalysis(
-                "ConnectionPoolExhausted",
+                ErrorType.CONNECTION_POOL_EXHAUSTED,
                 "payment-service",
                 Severity.CRITICAL,
                 Instant.parse("2026-08-05T02:14:33Z"),
@@ -66,7 +67,7 @@ class AnalyzeControllerTest {
     @Test
     void forwardsTheCallerSuppliedServiceName() throws Exception {
         given(analyzerService.analyze("HikariPool-1 timed out", "payment-service")).willReturn(
-                new LogAnalysis("ConnectionPoolExhausted", "payment-service", Severity.CRITICAL,
+                new LogAnalysis(ErrorType.CONNECTION_POOL_EXHAUSTED, "payment-service", Severity.CRITICAL,
                         null, List.of(), 0.9));
 
         mockMvc.perform(post("/api/analyze")
@@ -79,7 +80,7 @@ class AnalyzeControllerTest {
     @Test
     void warnsAboutUnknownPropertiesButStillSucceeds(CapturedOutput output) throws Exception {
         given(analyzerService.analyze(anyString(), any())).willReturn(new LogAnalysis(
-                "UpstreamTimeout", "unknown", Severity.HIGH, null, List.of(), 0.6));
+                ErrorType.UPSTREAM_TIMEOUT, "unknown", Severity.HIGH, null, List.of(), 0.6));
 
         // "service_name" is a plausible typo for "serviceName" - it must not be fatal,
         // but it must not vanish silently either.
@@ -95,7 +96,7 @@ class AnalyzeControllerTest {
     @Test
     void serialisesAMissingTimestampAsNull() throws Exception {
         given(analyzerService.analyze(anyString(), any())).willReturn(new LogAnalysis(
-                "NotALogFile", "unknown", Severity.LOW, null, List.of(), 0.0));
+                ErrorType.NOT_A_LOG_FILE, "unknown", Severity.LOW, null, List.of(), 0.0));
 
         mockMvc.perform(post("/api/analyze")
                         .contentType(MediaType.APPLICATION_JSON)

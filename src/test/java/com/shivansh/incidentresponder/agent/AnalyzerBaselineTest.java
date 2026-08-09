@@ -1,5 +1,6 @@
 package com.shivansh.incidentresponder.agent;
 
+import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.model.Severity;
 import com.shivansh.incidentresponder.service.AnalyzerService;
@@ -57,8 +58,9 @@ class AnalyzerBaselineTest {
      * an "expected:" comment would hand the model the answer and the baseline would be a lie.
      *
      * @param file                 resource name under {@code src/test/resources/logs/}
-     * @param acceptedErrorTypes   naming varies between runs, so this is a set; compared after
-     *                             lowercasing and stripping non-alphanumerics
+     * @param expectedErrorType    exact match. This was a set of accepted spellings while
+     *                             errorType was free text; the closed {@link ErrorType} enum
+     *                             makes that whole scoring problem disappear
      * @param acceptedServices     the service the failure ORIGINATED in, which is not always the
      *                             service whose tag is on the log lines. A set, because in a
      *                             sample built to test something else the origin can be
@@ -71,7 +73,7 @@ class AnalyzerBaselineTest {
      */
     private record Sample(
             String file,
-            Set<String> acceptedErrorTypes,
+            ErrorType expectedErrorType,
             Set<String> acceptedServices,
             Set<Severity> acceptedSeverities,
             Set<String> acceptedFirstOccurrences,
@@ -82,9 +84,7 @@ class AnalyzerBaselineTest {
     private static final List<Sample> SAMPLES = List.of(
             new Sample(
                     "connection-pool-exhaustion.log",
-                    Set.of("ConnectionPoolExhausted", "ConnectionPoolExhaustion", "ConnectionPoolTimeout",
-                            "DatabaseConnectionPoolExhausted", "JdbcConnectionPoolExhausted",
-                            "HikariPoolExhausted", "ConnectionAcquisitionTimeout"),
+                    ErrorType.CONNECTION_POOL_EXHAUSTED,
                     Set.of("payment-service"),
                     Set.of(Severity.CRITICAL, Severity.HIGH),
                     Set.of("2026-08-05T02:12:15Z", "2026-08-05T02:12:58Z", "2026-08-05T02:14:33Z"),
@@ -94,8 +94,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "out-of-memory.log",
-                    Set.of("OutOfMemoryError", "OutOfMemory", "JavaHeapSpaceExhausted", "HeapExhausted",
-                            "HeapExhaustion", "JvmHeapExhaustion", "JavaHeapSpace"),
+                    ErrorType.OUT_OF_MEMORY,
                     Set.of("order-service"),
                     Set.of(Severity.CRITICAL),
                     Set.of("2026-08-06T03:41:12Z", "2026-08-06T03:42:20Z", "2026-08-06T03:42:21Z"),
@@ -105,8 +104,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "downstream-timeout.log",
-                    Set.of("UpstreamTimeout", "DownstreamTimeout", "GatewayTimeout", "UpstreamServiceTimeout",
-                            "DependencyTimeout", "DownstreamServiceTimeout", "UpstreamUnavailable"),
+                    ErrorType.UPSTREAM_TIMEOUT,
                     Set.of("inventory-service"),
                     Set.of(Severity.CRITICAL, Severity.HIGH),
                     Set.of("2026-08-07T14:03:40Z", "2026-08-07T14:04:02Z", "2026-08-07T14:05:18Z"),
@@ -116,11 +114,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "disk-full.log",
-                    // DiskSpaceExhausted / DiskSpaceExhaustion are the same answer with a
-                    // different suffix. Accepting both variants is morphology, not meaning -
-                    // it does not weaken what this sample discriminates.
-                    Set.of("DiskFull", "DiskSpaceExhausted", "DiskSpaceExhaustion", "NoSpaceLeftOnDevice",
-                            "OutOfDiskSpace", "FilesystemFull", "StorageExhausted", "DiskExhaustion"),
+                    ErrorType.DISK_SPACE_EXHAUSTED,
                     Set.of("media-service"),
                     Set.of(Severity.CRITICAL),
                     Set.of("2026-08-07T16:17:29Z", "2026-08-07T16:21:38Z",
@@ -131,9 +125,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "auth-failure-spike.log",
-                    Set.of("ExpiredSigningCertificate", "ExpiredCertificate", "CertificateExpired",
-                            "SigningKeyExpired", "ExpiredJwtSigningKey", "JwksKeyExpired",
-                            "JwtSignatureValidationFailure", "SigningCertificateExpired"),
+                    ErrorType.EXPIRED_CERTIFICATE,
                     Set.of("auth-service"),
                     Set.of(Severity.CRITICAL),
                     Set.of("2026-08-08T00:00:07Z", "2026-08-08T00:01:00Z"),
@@ -145,8 +137,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "thread-deadlock.log",
-                    Set.of("ThreadDeadlock", "Deadlock", "JavaLevelDeadlock", "MonitorDeadlock",
-                            "LockOrderingDeadlock", "DeadlockDetected"),
+                    ErrorType.THREAD_DEADLOCK,
                     Set.of("pricing-service"),
                     Set.of(Severity.CRITICAL, Severity.HIGH),
                     Set.of("2026-08-06T11:22:19Z", "2026-08-06T11:22:51Z",
@@ -157,9 +148,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "slow-query-degradation.log",
-                    Set.of("SlowQuery", "SlowDatabaseQuery", "DatabaseQueryDegradation", "MissingIndex",
-                            "UnusedIndex", "QueryPlanRegression", "SequentialScanRegression",
-                            "LatencyDegradation", "DatabasePerformanceDegradation"),
+                    ErrorType.SLOW_QUERY,
                     Set.of("catalog-service"),
                     Set.of(Severity.MEDIUM),
                     Set.of("2026-08-04T09:18:52Z", "2026-08-04T09:11:47Z", "2026-08-04T09:21:19Z"),
@@ -170,9 +159,7 @@ class AnalyzerBaselineTest {
 
             new Sample(
                     "cache-miss-spike.log",
-                    Set.of("CacheColdStart", "CacheMissSpike", "CacheFlushed", "RedisRestart",
-                            "CacheEvicted", "CacheColdAfterRestart", "RedisConnectionLoss",
-                            "CacheUnavailable", "CacheInvalidation"),
+                    ErrorType.CACHE_UNAVAILABLE,
                     // Deliberately lenient: the restart happened in Redis, the log is profile-service
                     // coping with it. This sample exists to test severity, not origin attribution.
                     Set.of("profile-service", "redis", "redis-cache"),
@@ -292,8 +279,7 @@ class AnalyzerBaselineTest {
     private record Outcome(Sample sample, String logs, LogAnalysis analysis, String failure, long millis) {
 
         boolean errorTypeOk() {
-            return analysis != null && sample.acceptedErrorTypes().stream()
-                    .anyMatch(accepted -> normalise(accepted).equals(normalise(analysis.errorType())));
+            return analysis != null && sample.expectedErrorType() == analysis.errorType();
         }
 
         boolean serviceOk() {
@@ -355,7 +341,7 @@ class AnalyzerBaselineTest {
         LogAnalysis a = outcome.analysis();
         out("  %-4s errorType        %s", mark(outcome.errorTypeOk()), a.errorType());
         if (!outcome.errorTypeOk()) {
-            out("            expected one of  %s", String.join(", ", sample.acceptedErrorTypes()));
+            out("            expected         %s", sample.expectedErrorType());
         }
         out("  %-4s affectedService  %s", mark(outcome.serviceOk()), a.affectedService());
         if (!outcome.serviceOk()) {
@@ -436,11 +422,6 @@ class AnalyzerBaselineTest {
 
     private static String mark(boolean ok) {
         return ok ? "ok" : "FAIL";
-    }
-
-    /** Ignores case and punctuation so ConnectionPoolExhausted matches connection_pool_exhausted. */
-    private static String normalise(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     /** Collapses whitespace runs, so indentation in a stack trace does not fail a verbatim check. */

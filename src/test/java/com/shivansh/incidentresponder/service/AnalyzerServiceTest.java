@@ -2,6 +2,7 @@ package com.shivansh.incidentresponder.service;
 
 import com.shivansh.incidentresponder.agent.AnalyzerAgent;
 import com.shivansh.incidentresponder.agent.AnalyzerOutput;
+import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.model.Severity;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,7 @@ class AnalyzerServiceTest {
     @Test
     void mapsAWellFormedModelReply() {
         given(analyzerAgent.analyze("some logs")).willReturn(new AnalyzerOutput(
-                "ConnectionPoolExhausted",
+                ErrorType.CONNECTION_POOL_EXHAUSTED,
                 "payment-service",
                 Severity.CRITICAL,
                 "2026-08-05T02:14:33Z",
@@ -47,7 +48,7 @@ class AnalyzerServiceTest {
 
         LogAnalysis analysis = analyzerService.analyze("some logs");
 
-        assertThat(analysis.errorType()).isEqualTo("ConnectionPoolExhausted");
+        assertThat(analysis.errorType()).isEqualTo(ErrorType.CONNECTION_POOL_EXHAUSTED);
         assertThat(analysis.affectedService()).isEqualTo("payment-service");
         assertThat(analysis.severity()).isEqualTo(Severity.CRITICAL);
         assertThat(analysis.firstOccurrence()).isEqualTo(Instant.parse("2026-08-05T02:14:33Z"));
@@ -88,7 +89,7 @@ class AnalyzerServiceTest {
     @Test
     void clampsConfidenceIntoRange() {
         given(analyzerAgent.analyze("logs")).willReturn(new AnalyzerOutput(
-                "OutOfMemoryError", "order-service", Severity.HIGH, null, List.of(), 1.5));
+                ErrorType.OUT_OF_MEMORY, "order-service", Severity.HIGH, null, List.of(), 1.5));
 
         assertThat(analyzerService.analyze("logs").confidence()).isEqualTo(1.0);
     }
@@ -100,7 +101,7 @@ class AnalyzerServiceTest {
 
         LogAnalysis analysis = analyzerService.analyze("logs");
 
-        assertThat(analysis.errorType()).isEqualTo("UnknownError");
+        assertThat(analysis.errorType()).isEqualTo(ErrorType.OTHER);
         assertThat(analysis.affectedService()).isEqualTo("unknown");
         assertThat(analysis.severity()).isEqualTo(Severity.MEDIUM);
         assertThat(analysis.keyEvidence()).isEmpty();
@@ -110,7 +111,7 @@ class AnalyzerServiceTest {
     @Test
     void dropsBlankAndNullEvidenceLines() {
         given(analyzerAgent.analyze("logs")).willReturn(new AnalyzerOutput(
-                "UpstreamTimeout", "order-service", Severity.MEDIUM, null,
+                ErrorType.UPSTREAM_TIMEOUT, "order-service", Severity.MEDIUM, null,
                 Arrays.asList("  a real line  ", null, "   "), 0.5));
 
         assertThat(analyzerService.analyze("logs").keyEvidence()).containsExactly("a real line");
@@ -120,7 +121,7 @@ class AnalyzerServiceTest {
     void callerSuppliedServiceOverridesTheModel() {
         // The bug that prompted this: the model picked a connection pool name out of the logs.
         given(analyzerAgent.analyzeForService("logs", "payment-service")).willReturn(new AnalyzerOutput(
-                "ConnectionPoolExhausted", "HikariPool-1", Severity.CRITICAL, null, List.of(), 0.9));
+                ErrorType.CONNECTION_POOL_EXHAUSTED, "HikariPool-1", Severity.CRITICAL, null, List.of(), 0.9));
 
         assertThat(analyzerService.analyze("logs", "payment-service").affectedService())
                 .isEqualTo("payment-service");
@@ -129,7 +130,7 @@ class AnalyzerServiceTest {
     @Test
     void callerSuppliedServiceIsUsedEvenWhenTheModelOmitsIt() {
         given(analyzerAgent.analyzeForService("logs", "order-service")).willReturn(new AnalyzerOutput(
-                "UpstreamTimeout", null, Severity.HIGH, null, List.of(), 0.6));
+                ErrorType.UPSTREAM_TIMEOUT, null, Severity.HIGH, null, List.of(), 0.6));
 
         assertThat(analyzerService.analyze("logs", "order-service").affectedService())
                 .isEqualTo("order-service");
@@ -178,6 +179,6 @@ class AnalyzerServiceTest {
 
     private static AnalyzerOutput output(String firstOccurrence) {
         return new AnalyzerOutput(
-                "UpstreamTimeout", "order-service", Severity.HIGH, firstOccurrence, List.of(), 0.7);
+                ErrorType.UPSTREAM_TIMEOUT, "order-service", Severity.HIGH, firstOccurrence, List.of(), 0.7);
     }
 }
