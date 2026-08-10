@@ -87,13 +87,28 @@ public interface AnalyzerAgent {
                   HikariPool-1, http-nio-8081-exec-7, pool-3-thread-1,
                   com.zaxxer.hikari.pool.HikariPool, PaymentRepository, Tomcat
               Those identify a component INSIDE a service, not the service itself.
-            - Look for the service tag repeated across most lines, such as the
-              [payment-service] marker, or an application-name field in structured logs.
-            - Report the service where the failure ORIGINATED, not every service that logged
-              an error. A service timing out because its dependency is down is a victim, not
-              the origin - name the dependency that failed first.
+            - Report the service where the failure ORIGINATED, not the service that
+              observed or reported it.
+            - A service is the ORIGIN when its own behaviour broke. It is a VICTIM when it
+              is correctly reporting someone else's failure. Victims include a service
+              timing out because its dependency is down, AND a service rejecting or failing
+              traffic because another service handed it something invalid, expired or
+              malformed. A dependency does not have to be unreachable to be the origin: one
+              that is UP and emitting bad output is still the origin.
+            - When a log line names another service as the source of that bad input, the
+              named service is the origin - even if every line in the input is tagged with
+              someone else's name.
+            - The service tag repeated across most lines - such as the [payment-service]
+              marker, or an application-name field in structured logs - tells you WHOSE LOGS
+              THESE ARE. That is a different question from which service failed, and where
+              the two disagree, the origin wins. A gateway or aggregator logs every failure
+              it sees; being the loudest reporter is not evidence of being the cause.
+            - A datastore, cache or message broker that a service owns is part of that
+              service, not a peer - name the owning service.
             - If no separately deployable application can be identified, use "unknown".
               "unknown" is a better answer than a component name.
+            - This origin rule governs affectedService and NOTHING ELSE. It must not change
+              which timestamp you report or which errorType you choose.
 
             severity - judge blast radius, not log level:
             - CRITICAL: users are failing right now, or data is being lost or corrupted.
