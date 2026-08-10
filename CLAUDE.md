@@ -17,7 +17,8 @@ Read project-brief.md for the full spec before making decisions.
 - I am learning — when you use a new concept, explain it in 2-3 lines
 
 ## Current Status
-Week 1, Step 4 in progress — prompt tuning against an 8-sample baseline.
+Week 1, Step 4 — prompt tuning against the 8-sample baseline. Measured state as
+of 2026-08-10. The run log with the full reasoning is in docs/baseline.md.
 
 Done:
 - Spring Boot skeleton, LangChain4j + Groq configured, .env for API key
@@ -26,12 +27,32 @@ Done:
 - Fix (a): errorType names the cause, not the symptom
 - Fix: errorType's cause rule separated from firstOccurrence's
   earliest-symptom rule (these were bleeding into each other)
-
-Next:
 - Fix (b): forbid splicing a timestamped header onto a continuation line
-- Fix (c): confidence calibration anchors
-- Open question: disk-full firstOccurrence lost its +05:30 → UTC conversion
-  in the last run. Side effect or variance? Needs a repeat run.
+- errorType closed enum, now VERIFIED end to end: AnalyzerStabilityTest 3/3
+  clean (CACHE_UNAVAILABLE three times) and the 8-sample OTHER rate is 0/8.
+- Fix: affectedService names the origin, not the reporter. auth-failure-spike
+  returns auth-service after three runs of api-gateway. Four other services
+  unchanged.
+- disk-full's +05:30 → UTC conversion is correct again. That open question is
+  closed — fixed by the worked examples, not variance.
+
+Not doing:
+- Fix (c), confidence calibration anchors. Confidence varies on its own (0.95
+  clear, 0.80–0.90 ambiguous, four distinct values). The "0.95 on everything"
+  concern was an artefact of the early test set.
+
+Next, in this order. One full 8-sample run is ~27k of the 100k/day, so this is
+roughly three runs' worth of work and they cannot be chained in one day:
+1. Re-run the full 8 UNCHANGED. Three samples never ran on 2026-08-10
+   (thread-deadlock, slow-query-degradation, cache-miss-spike), so the
+   datastore-bullet regression risk is untested rather than cleared — and it
+   gives downstream-timeout's drift a second data point.
+2. downstream-timeout errorType: UPSTREAM_TIMEOUT → UPSTREAM_UNAVAILABLE, one
+   observation. If it sticks, trim the availability vocabulary ("unreachable",
+   "down", "UP and emitting bad output") out of the affectedService rule.
+3. out-of-memory firstOccurrence: stable regression, byte-identical over two
+   runs, reporting the cause (03:40:55 export load) instead of the earliest
+   symptom (03:41:12 GC thrash). Candidate is 712362b. Its own fix, own run.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -65,3 +86,10 @@ This is the concrete justification for Week 3's Redis caching layer.
 - Prompts are probabilistic, types are guarantees. severity (enum) never
   drifted in 6 runs; errorType (String) drifted twice with identical input.
   If a value must be stable, encode it in the type, not the prompt.
+- An enum pins the vocabulary, not the choice. errorType was stable 3/3 on
+  identical input and prompt, then moved between two valid constants when an
+  unrelated rule was reworded. The type stops "which spelling"; only a run
+  answers "which constant".
+- Writing "this rule governs X and NOTHING ELSE" into the prompt did not stop
+  the bleed — errorType moved on a change scoped to affectedService. Fencing
+  is worth writing, but it is not a control. Only the matrix tells you.

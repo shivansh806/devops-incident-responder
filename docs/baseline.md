@@ -163,14 +163,26 @@ run to establish. Nothing in the current sample set needs a generic auth value, 
 out under the same "grow from evidence" rule. This is a judgement call and a reversible one:
 a real incident with genuinely bad credentials and no deeper cause would justify adding it.
 
-### Status
+### Status: verified, 2026-08-10
 
-Not yet verified end to end. The acceptance test is `AnalyzerStabilityTest`, which sends the
-sample that actually drifted through three times and asserts `errorType` is identical. Its
-first run got two of three — both `CACHE_UNAVAILABLE`, which is encouraging on both counts
-(stable, and covered by the vocabulary rather than falling to `OTHER`) — before the daily
-token cap stopped the third. Two agreeing runs is not the check passing. A full 8-sample run,
-which is where the `OTHER` rate gets measured, is queued behind a clean 3x.
+`AnalyzerStabilityTest` passed **3 of 3**, `CACHE_UNAVAILABLE` every time, no quota abort. An
+earlier attempt had stopped at two of three, and two agreeing runs was never the check
+passing; this is.
+
+The 8-sample run behind it measured the **`OTHER` rate at 0 of 8** — every sample landed on a
+real constant, and nothing had to be rescued by the lenient parser's case/punctuation
+matching. On the "grow the vocabulary from evidence" rule that argues for adding no constants.
+
+The limit of that evidence: 0% across eight samples written before the enum existed rules out
+the vocabulary being too small *for what we test*. It says nothing about unseen failure types
+in production.
+
+What the enum is and is not guaranteeing is worth keeping straight, because a later run
+tested the difference. It guarantees the same answer for identical input **and** identical
+prompt — that is what the 3x measures. It does not promise the same answer across prompt
+edits: `downstream-timeout` moved from `UPSTREAM_TIMEOUT` to `UPSTREAM_UNAVAILABLE` when an
+unrelated rule was reworded (see the run log). Both are valid constants, so the type held; the
+model's choice within the type moved.
 
 ## Known limitations
 
@@ -188,8 +200,10 @@ been widening for *meaning*, which destroys what the sample tests. Adding a seco
 aimed at gradual degradation risked the same bleed that the cause rule caused in
 `firstOccurrence`. And the enum has since changed the mechanics of this field entirely — the
 expected answer is now `SLOW_QUERY`, chosen from a closed list — so anything done before
-re-measuring would be fixing a problem that may no longer exist. **Unverified since the enum
-landed.**
+re-measuring would be fixing a problem that may no longer exist. **Resolved by the enum** — it
+returned `SLOW_QUERY` on the 2026-08-10 run, so the closed list fixed what a prompt rule could
+not move. Left here rather than deleted: the reasoning is the useful part, and the sample
+still has to be re-measured after the affectedService change.
 
 **`cache-miss-spike` returns MEDIUM where the harness expects LOW.** Consistent across every
 run. The expectation is deliberately strict and the model's answer is not clearly wrong: Redis
@@ -206,11 +220,80 @@ case flips.
 
 ### Also open, and not limitations
 
-Distinct from the above, these are unfinished work rather than accepted trade-offs:
-`auth-failure-spike` began returning `api-gateway` for `affectedService` — the victim, not the
-origin — over two consecutive runs, so it is confirmed rather than variance; and confidence
-calibration is untouched, still sitting at 0.95 on nearly everything including answers that
-turned out to be wrong.
+Distinct from the above, these are unfinished work rather than accepted trade-offs. Both are
+open as of 2026-08-10; the run log below has the detail.
+
+- **`out-of-memory` reports the wrong `firstOccurrence`.** A stable regression, not variance.
+- **`downstream-timeout` returned `UPSTREAM_UNAVAILABLE` where the harness expects
+  `UPSTREAM_TIMEOUT`.** One observation only.
+
+Two entries that used to live here are now closed. `auth-failure-spike` returning
+`api-gateway` for `affectedService` was fixed by the origin-vs-reporter rule. Confidence
+calibration was dropped rather than fixed: the field turned out to vary on its own — 0.95 on
+clear-cut samples, 0.80–0.90 on ambiguous ones, four distinct values tracking difficulty — so
+the "0.95 on nearly everything" concern was an artefact of the early test set, not a
+calibration fault. No anchors were added.
+
+## Run log
+
+Newest first. Compare matrices across runs, not fields within one.
+
+### 2026-08-10 — affectedService origin-vs-reporter rule
+
+The change: in the `affectedService` block, the origin rule now leads and the service-tag
+heuristic is subordinated to it, victimhood is broadened past the down/timeout shape to cover
+a dependency that is UP and emitting bad output, and a datastore/cache/broker owned by a
+service is declared part of that service rather than a peer.
+
+**Target met.** `auth-failure-spike` returned `auth-service` after three consecutive runs of
+`api-gateway`. Four other services were unchanged (`payment-service`, `order-service`,
+`inventory-service`, `media-service`).
+
+**The run did not finish.** The daily 100k cap landed with three samples unrun —
+`thread-deadlock`, `slow-query-degradation`, `cache-miss-spike`. Those last two are exactly
+where the datastore bullet was expected to be load-bearing: `cache-miss-spike` has a Redis
+drop that the broadened origin rule could plausibly pull toward `redis-cache` instead of
+`profile-service`. **That risk is untested, not cleared.** The runner's "3 of 8 correct"
+undercounts for the same reason — it is 3 of the 5 that executed.
+
+| Sample | vs previous run |
+|---|---|
+| connection-pool-exhaustion | unchanged, all four ok |
+| out-of-memory | unchanged, `firstOccurrence` FAIL |
+| downstream-timeout | **`errorType` ok → FAIL** |
+| disk-full | unchanged, all four ok |
+| auth-failure-spike | **`affectedService` FAIL → ok** |
+| thread-deadlock, slow-query-degradation, cache-miss-spike | not run — 429 TPD |
+
+**`out-of-memory` `firstOccurrence` is a stable regression.** Byte-identical across two runs:
+`2026-08-06T03:40:55.239Z`, the `Export EXP-4471 loaded 1600000 rows into memory` INFO line,
+against an expected `03:41:12Z` (the GC thrash) or later. Two identical answers settle it as a
+regression rather than variance. The model is not picking the loudest line — it goes the other
+way, past the earliest symptom to the earliest *cause*. Loading 1.6M rows is why the heap
+filled, but it is normal operation, not a symptom.
+
+It **predates the affectedService change**, appearing first in the run before it, so that
+change is not the cause. The remaining candidate is 712362b (two worked examples for
+`firstOccurrence`) — it is the commit that touched this field, it landed after the last run
+where the sample was correct, and it demonstrably moved `firstOccurrence` behaviour elsewhere
+in the same window: `disk-full` began converting `+05:30` → `16:17:29Z` correctly again, which
+closes that open question as fixed rather than variance.
+
+**`downstream-timeout` errorType drifted, and the anti-bleed clause did not prevent it.** The
+new rule ends with "This origin rule governs affectedService and NOTHING ELSE. It must not
+change which timestamp you report or which errorType you choose," and `errorType` moved
+anyway, `UPSTREAM_TIMEOUT` → `UPSTREAM_UNAVAILABLE`. Severity also shifted HIGH → CRITICAL,
+though the expectation admits both so it scored ok.
+
+The hypothesis is **availability vocabulary**: the new wording introduced "unreachable",
+"down" and "UP and emitting bad output" into a prompt that then had to choose between a
+timeout constant and an unavailability constant. That is a hypothesis, not a finding. One
+observation cannot separate it from ordinary variance in a judgement between two plausible
+constants, and the next run is unchanged precisely so this gets a second data point. If it
+sticks, trim the availability wording; if it reverts, it was variance.
+
+Both fields already had explicit fencing before this, and the fencing has now failed once.
+Worth weighing before reaching for a third prompt rule.
 
 ## It reports, it does not assert
 
