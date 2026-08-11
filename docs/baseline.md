@@ -163,7 +163,7 @@ run to establish. Nothing in the current sample set needs a generic auth value, 
 out under the same "grow from evidence" rule. This is a judgement call and a reversible one:
 a real incident with genuinely bad credentials and no deeper cause would justify adding it.
 
-### Status: verified, 2026-08-10
+### Status: verified 2026-08-10, re-confirmed 2026-08-11
 
 `AnalyzerStabilityTest` passed **3 of 3**, `CACHE_UNAVAILABLE` every time, no quota abort. An
 earlier attempt had stopped at two of three, and two agreeing runs was never the check
@@ -172,17 +172,23 @@ passing; this is.
 The 8-sample run behind it measured the **`OTHER` rate at 0 of 8** — every sample landed on a
 real constant, and nothing had to be rescued by the lenient parser's case/punctuation
 matching. On the "grow the vocabulary from evidence" rule that argues for adding no constants.
+The 2026-08-11 run repeated 0 of 8 on all eight samples, so that now rests on two full runs.
 
 The limit of that evidence: 0% across eight samples written before the enum existed rules out
 the vocabulary being too small *for what we test*. It says nothing about unseen failure types
 in production.
 
-What the enum is and is not guaranteeing is worth keeping straight, because a later run
-tested the difference. It guarantees the same answer for identical input **and** identical
-prompt — that is what the 3x measures. It does not promise the same answer across prompt
-edits: `downstream-timeout` moved from `UPSTREAM_TIMEOUT` to `UPSTREAM_UNAVAILABLE` when an
-unrelated rule was reworded (see the run log). Both are valid constants, so the type held; the
-model's choice within the type moved.
+What the enum is and is not guaranteeing is worth keeping straight. It guarantees the
+**vocabulary** — every answer is one of the constants, and no run has to be rescued by the
+lenient parser. It does not guarantee **which** constant, even with the input and the prompt
+both held fixed. `downstream-timeout` moved `UPSTREAM_TIMEOUT` → `UPSTREAM_UNAVAILABLE` on a
+prompt edit and then moved back on the 2026-08-11 run, which changed nothing at all. Both are
+valid constants, so the type held throughout; the choice inside the type moved on its own.
+
+The 3x stability check is not in tension with that. It measured one sample —
+`cache-miss-spike`, where `CACHE_UNAVAILABLE` is the only defensible answer — and got the same
+constant three times. Where two constants are genuinely arguable the choice is a judgement,
+and judgements vary run to run. Stability is a property of the sample as much as of the type.
 
 ## Known limitations
 
@@ -202,8 +208,8 @@ aimed at gradual degradation risked the same bleed that the cause rule caused in
 expected answer is now `SLOW_QUERY`, chosen from a closed list — so anything done before
 re-measuring would be fixing a problem that may no longer exist. **Resolved by the enum** — it
 returned `SLOW_QUERY` on the 2026-08-10 run, so the closed list fixed what a prompt rule could
-not move. Left here rather than deleted: the reasoning is the useful part, and the sample
-still has to be re-measured after the affectedService change.
+not move, and again on 2026-08-11, which is the re-measure the affectedService change owed it.
+Left here rather than deleted: the reasoning is the useful part.
 
 **`cache-miss-spike` returns MEDIUM where the harness expects LOW.** Consistent across every
 run. The expectation is deliberately strict and the model's answer is not clearly wrong: Redis
@@ -218,25 +224,107 @@ the same person who wrote the expectation. One sample cannot tell those apart. T
 is more low-severity samples before any prompt change, not tuning the prompt until this one
 case flips.
 
-### Also open, and not limitations
+### Nothing else is open
 
-Distinct from the above, these are unfinished work rather than accepted trade-offs. Both are
-open as of 2026-08-10; the run log below has the detail.
+As of 2026-08-11 the `cache-miss-spike` severity floor above is the only failing field in the
+set. Four entries that used to live here are closed, and how each one closed is worth keeping:
 
-- **`out-of-memory` reports the wrong `firstOccurrence`.** A stable regression, not variance.
-- **`downstream-timeout` returned `UPSTREAM_UNAVAILABLE` where the harness expects
-  `UPSTREAM_TIMEOUT`.** One observation only.
+- **`auth-failure-spike` returned `api-gateway` for `affectedService`.** Fixed by the
+  origin-vs-reporter rule, and held on the run after.
+- **Confidence calibration.** Dropped rather than fixed. The field varies on its own — four
+  distinct values tracking difficulty, 0.80 to 0.95 — so the "0.95 on nearly everything"
+  concern was an artefact of the early test set. No anchors were added.
+- **`out-of-memory` reported the wrong `firstOccurrence`.** Recorded here as a *stable
+  regression* on two byte-identical runs. It was variance. The third run returned the expected
+  `03:41:12Z` with nothing changed. See *how many runs settle a question* below — this is the
+  entry that falsified the old rule.
+- **`downstream-timeout` returned `UPSTREAM_UNAVAILABLE`.** One observation, hypothesised to
+  be availability vocabulary bleeding out of the `affectedService` rule. It reverted to
+  `UPSTREAM_TIMEOUT` on an unchanged run, so the hypothesis is unsupported and the wording was
+  left alone. Had it been acted on after one observation, the trim would have been credited
+  with a fix that was going to happen anyway.
 
-Two entries that used to live here are now closed. `auth-failure-spike` returning
-`api-gateway` for `affectedService` was fixed by the origin-vs-reporter rule. Confidence
-calibration was dropped rather than fixed: the field turned out to vary on its own — 0.95 on
-clear-cut samples, 0.80–0.90 on ambiguous ones, four distinct values tracking difficulty — so
-the "0.95 on nearly everything" concern was an artefact of the early test set, not a
-calibration fault. No anchors were added.
+### How many runs settle a question
+
+**Two identical answers do not distinguish a regression from variance.** This was written into
+the run log as though it did, and `out-of-memory` falsified it: `03:40:55`, `03:40:55`,
+`03:41:12` across three runs, prompt unchanged throughout. Two agreeing runs were enough to
+get it recorded as a stable regression with a candidate commit attached, and a fix aimed at
+that commit would have been chasing noise.
+
+`AnalyzerStabilityTest` already had the right rule — it asserts **3 of 3**, and an earlier
+attempt that stopped at two of three was explicitly not counted as passing. The baseline did
+not apply the same standard to itself. The distinction that justified the difference was that
+stability measures a mechanism while the baseline measures judgement, but that argues for
+*more* runs on the judgement fields, not fewer.
+
+So: **a judgement field needs three runs before a change in it is called a regression.** That
+is expensive — three runs is the entire daily quota — which is the real argument, alongside
+cost, for the week 3 cache. Until then the affordable discipline is to state how many
+observations a claim rests on, and to treat a one- or two-run finding as a hypothesis with the
+run count written next to it.
 
 ## Run log
 
 Newest first. Compare matrices across runs, not fields within one.
+
+### 2026-08-11 — unchanged control run. Step 4 closes here
+
+No prompt change. The tree was clean at `a40b2cb` and this run measured it as-is, for two
+reasons: three samples never executed on 2026-08-10, and the two open items each rested on
+observations that an unchanged run could confirm or kill.
+
+**All eight executed**, 3:13 wall clock, no 429. **7 of 8 correct on all four fields.**
+
+```
+ SAMPLE                       TYPE   SERVICE  SEVERITY  FIRSTOCC  VERBATIM  CONF       MS
+ connection-pool-exhaustion   ok     ok       ok        ok        4/4       0.95     1850
+ out-of-memory                ok     ok       ok        ok        4/4       0.95      797
+ downstream-timeout           ok     ok       ok        ok        4/4       0.90     1047
+ disk-full                    ok     ok       ok        ok        4/4       0.95     1191
+ auth-failure-spike           ok     ok       ok        ok        5/5       0.95     1283
+ thread-deadlock              ok     ok       ok        ok        3/3       0.95      888
+ slow-query-degradation       ok     ok       ok        ok        3/3       0.80      955
+ cache-miss-spike             ok     ok       FAIL      ok        3/3       0.85      812
+```
+
+| Sample | vs previous run |
+|---|---|
+| connection-pool-exhaustion | unchanged, all four ok |
+| out-of-memory | **`firstOccurrence` FAIL → ok** |
+| downstream-timeout | **`errorType` FAIL → ok**, reverted to `UPSTREAM_TIMEOUT` |
+| disk-full | unchanged, all four ok |
+| auth-failure-spike | unchanged, all four ok — the origin fix held a second run |
+| thread-deadlock | first execution since the change, all four ok |
+| slow-query-degradation | first execution since the change, all four ok |
+| cache-miss-spike | first execution since the change, `severity` MEDIUM — the known limitation |
+
+**The datastore bullet is cleared, not merely untested.** `cache-miss-spike` returned
+`profile-service`; the broadened origin rule did not promote the dropped Redis to an origin of
+its own. `slow-query-degradation` returned `catalog-service` and `thread-deadlock` returned
+`pricing-service`. That was the specific regression risk left hanging by the 429, and it did
+not materialise.
+
+**Both open items reverted with nothing changed, so both were variance.** `downstream-timeout`
+went back to `UPSTREAM_TIMEOUT`, which was the pre-registered test and it failed — the
+availability-vocabulary hypothesis is unsupported and the wording stays. `out-of-memory`
+returned the expected `03:41:12Z` after two byte-identical runs at `03:40:55`, so the "stable
+regression" was not stable and 712362b was never implicated. Neither queued prompt change was
+made. See *how many runs settle a question*.
+
+**Unchanged measurements.** `OTHER` rate 0 of 8, second consecutive run. Confidence spread
+four distinct values, 0.80 / 0.85 / 0.90 / 0.95, tracking difficulty — consistent with
+dropping the calibration anchors. Verbatim clean on every sample, including the multi-line
+deadlock dump and the JSON-structured auth logs.
+
+`downstream-timeout` severity was CRITICAL again where the previous run read HIGH → CRITICAL;
+the expectation admits both, so it scores ok either way and is noted only so the next reader
+does not rediscover it as news.
+
+**Step 4 closes on this matrix.** The remaining failure is `cache-miss-spike` severity, which
+is a deliberate known limitation and is not to be tuned until the sample set has more than one
+LOW case. Run 2 of the day's quota was not spent — with both queued items resolved there was
+no change left to measure, and a run with no hypothesis attached is just spending.
 
 ### 2026-08-10 — affectedService origin-vs-reporter rule
 
@@ -279,6 +367,12 @@ where the sample was correct, and it demonstrably moved `firstOccurrence` behavi
 in the same window: `disk-full` began converting `+05:30` → `16:17:29Z` correctly again, which
 closes that open question as fixed rather than variance.
 
+> **Superseded by 2026-08-11.** The third run returned `03:41:12Z` with the prompt unchanged,
+> so this was variance and 712362b was never implicated. The two paragraphs above are left
+> standing because the reasoning error is the useful part: two agreeing runs were treated as
+> settling the question, and a commit was named on that basis. `disk-full`'s conversion fix is
+> unaffected — it has now held across three runs.
+
 **`downstream-timeout` errorType drifted, and the anti-bleed clause did not prevent it.** The
 new rule ends with "This origin rule governs affectedService and NOTHING ELSE. It must not
 change which timestamp you report or which errorType you choose," and `errorType` moved
@@ -294,6 +388,11 @@ sticks, trim the availability wording; if it reverts, it was variance.
 
 Both fields already had explicit fencing before this, and the fencing has now failed once.
 Worth weighing before reaching for a third prompt rule.
+
+> **Superseded by 2026-08-11.** It reverted on an unchanged run, so the availability-vocabulary
+> hypothesis is unsupported and the wording was never trimmed. The "fencing failed" reading
+> also goes with it: there is no longer any evidence the prompt edit moved this field at all.
+> What the pair of runs actually shows is that a two-constant judgement moves on its own.
 
 ## It reports, it does not assert
 

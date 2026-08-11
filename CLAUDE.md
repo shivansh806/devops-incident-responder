@@ -17,8 +17,18 @@ Read project-brief.md for the full spec before making decisions.
 - I am learning — when you use a new concept, explain it in 2-3 lines
 
 ## Current Status
-Week 1, Step 4 — prompt tuning against the 8-sample baseline. Measured state as
-of 2026-08-10. The run log with the full reasoning is in docs/baseline.md.
+Week 1, **Step 4 CLOSED** on the 2026-08-11 control run. The full run log and
+reasoning are in docs/baseline.md.
+
+Final Step 4 result — full 8-sample baseline, unchanged prompt, all eight
+executed, no quota abort:
+- **7 of 8 correct** on all four scored fields
+- **OTHER rate 0 of 8** — second consecutive run, no vocabulary gap
+- **Confidence spread 0.80–0.95**, four distinct values tracking difficulty
+- Verbatim clean on every sample, multi-line dump and JSON logs included
+- The one failure is cache-miss-spike severity (MEDIUM vs expected LOW), a
+  deliberate known limitation — do not tune it until the set has more than one
+  LOW sample
 
 Done:
 - Spring Boot skeleton, LangChain4j + Groq configured, .env for API key
@@ -28,31 +38,26 @@ Done:
 - Fix: errorType's cause rule separated from firstOccurrence's
   earliest-symptom rule (these were bleeding into each other)
 - Fix (b): forbid splicing a timestamped header onto a continuation line
-- errorType closed enum, now VERIFIED end to end: AnalyzerStabilityTest 3/3
-  clean (CACHE_UNAVAILABLE three times) and the 8-sample OTHER rate is 0/8.
+- errorType closed enum, VERIFIED end to end: AnalyzerStabilityTest 3/3 clean
+  (CACHE_UNAVAILABLE three times) and the OTHER rate is 0/8 twice over.
 - Fix: affectedService names the origin, not the reporter. auth-failure-spike
-  returns auth-service after three runs of api-gateway. Four other services
-  unchanged.
-- disk-full's +05:30 → UTC conversion is correct again. That open question is
-  closed — fixed by the worked examples, not variance.
+  returns auth-service after three runs of api-gateway, and held on the
+  following run. The datastore/cache bullet's regression risk is now cleared:
+  cache-miss-spike returns profile-service, not redis-cache.
+- disk-full's +05:30 → UTC conversion holds across three runs.
 
-Not doing:
+Not doing, and why — all three resolved without a prompt change:
 - Fix (c), confidence calibration anchors. Confidence varies on its own (0.95
   clear, 0.80–0.90 ambiguous, four distinct values). The "0.95 on everything"
   concern was an artefact of the early test set.
+- downstream-timeout's UPSTREAM_TIMEOUT → UPSTREAM_UNAVAILABLE drift. Reverted
+  on the unchanged run, so it was variance. The availability vocabulary in the
+  affectedService rule stays as written.
+- out-of-memory's firstOccurrence "stable regression". Also reverted. Two
+  byte-identical runs were not enough to call it stable — see the run-count
+  rule under Prompt engineering learnings. 712362b was never implicated.
 
-Next, in this order. One full 8-sample run is ~27k of the 100k/day, so this is
-roughly three runs' worth of work and they cannot be chained in one day:
-1. Re-run the full 8 UNCHANGED. Three samples never ran on 2026-08-10
-   (thread-deadlock, slow-query-degradation, cache-miss-spike), so the
-   datastore-bullet regression risk is untested rather than cleared — and it
-   gives downstream-timeout's drift a second data point.
-2. downstream-timeout errorType: UPSTREAM_TIMEOUT → UPSTREAM_UNAVAILABLE, one
-   observation. If it sticks, trim the availability vocabulary ("unreachable",
-   "down", "UP and emitting bad output") out of the affectedService rule.
-3. out-of-memory firstOccurrence: stable regression, byte-identical over two
-   runs, reporting the cause (03:40:55 export load) instead of the earliest
-   symptom (03:41:12 GC thrash). Candidate is 712362b. Its own fix, own run.
+Next: Week 1 Step 5. Nothing is queued against the baseline.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -86,10 +91,25 @@ This is the concrete justification for Week 3's Redis caching layer.
 - Prompts are probabilistic, types are guarantees. severity (enum) never
   drifted in 6 runs; errorType (String) drifted twice with identical input.
   If a value must be stable, encode it in the type, not the prompt.
-- An enum pins the vocabulary, not the choice. errorType was stable 3/3 on
-  identical input and prompt, then moved between two valid constants when an
-  unrelated rule was reworded. The type stops "which spelling"; only a run
-  answers "which constant".
-- Writing "this rule governs X and NOTHING ELSE" into the prompt did not stop
-  the bleed — errorType moved on a change scoped to affectedService. Fencing
-  is worth writing, but it is not a control. Only the matrix tells you.
+- An enum pins the vocabulary, not the choice. The type stops "which spelling";
+  only a run answers "which constant". Where two constants are both defensible
+  the choice is a judgement and moves on its own — downstream-timeout moved and
+  then moved back with the prompt untouched. Where only one is defensible it
+  holds (stability 3/3). Stability is a property of the sample too, not just
+  the type.
+- **A judgement field needs three runs before a change in it is a regression.**
+  out-of-memory read 03:40:55, 03:40:55, 03:41:12 with nothing changed between
+  them. Two agreeing runs got it written up as a stable regression with a
+  candidate commit named; the third killed it. AnalyzerStabilityTest already
+  required 3/3 and explicitly refused to count 2/3 as a pass — the baseline
+  simply never held itself to the same standard. Three runs is the whole daily
+  quota, so until the Week 3 cache lands, state the run count next to any
+  finding and treat one or two observations as a hypothesis.
+- Do not act on a single observation. Both queued Step 4 fixes were built on
+  one-or-two-run findings and both evaporated. Trimming the availability
+  vocabulary would have been credited with a revert that was going to happen
+  anyway — a fix that "works" for the wrong reason is worse than no fix,
+  because it gets believed.
+- Fencing ("this rule governs X and NOTHING ELSE") has never actually been
+  shown to fail. The one bleed it supposedly failed to stop turned out to be
+  variance. It also has not been shown to work. Untested either way.
