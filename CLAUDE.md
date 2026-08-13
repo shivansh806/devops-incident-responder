@@ -17,47 +17,22 @@ Read project-brief.md for the full spec before making decisions.
 - I am learning — when you use a new concept, explain it in 2-3 lines
 
 ## Current Status
-Week 1, **Step 4 CLOSED** on the 2026-08-11 control run. The full run log and
-reasoning are in docs/baseline.md.
+**Week 1: CLOSED.** Analyzer Agent complete and tuned. Final baseline 7/8,
+OTHER rate 0/8, confidence spread 0.80–0.95, verbatim clean. Full run log,
+every fix and its measured effect, and the closure reasoning are in
+docs/baseline.md — read that file before questioning any Week 1 decision.
 
-Final Step 4 result — full 8-sample baseline, unchanged prompt, all eight
-executed, no quota abort:
-- **7 of 8 correct** on all four scored fields
-- **OTHER rate 0 of 8** — second consecutive run, no vocabulary gap
-- **Confidence spread 0.80–0.95**, four distinct values tracking difficulty
-- Verbatim clean on every sample, multi-line dump and JSON logs included
-- The one failure is cache-miss-spike severity (MEDIUM vs expected LOW), a
-  deliberate known limitation — do not tune it until the set has more than one
-  LOW sample
+The one open failure is cache-miss-spike severity (MEDIUM vs expected LOW),
+a deliberate known limitation. Do not tune it until the set has more than
+one LOW sample.
 
-Done:
-- Spring Boot skeleton, LangChain4j + Groq configured, .env for API key
-- Analyzer Agent returning typed structured output via POST /api/analyze
-- 8 log samples + AnalyzerBaselineTest (tagged `llm`, excluded from `mvn test`)
-- Fix (a): errorType names the cause, not the symptom
-- Fix: errorType's cause rule separated from firstOccurrence's
-  earliest-symptom rule (these were bleeding into each other)
-- Fix (b): forbid splicing a timestamped header onto a continuation line
-- errorType closed enum, VERIFIED end to end: AnalyzerStabilityTest 3/3 clean
-  (CACHE_UNAVAILABLE three times) and the OTHER rate is 0/8 twice over.
-- Fix: affectedService names the origin, not the reporter. auth-failure-spike
-  returns auth-service after three runs of api-gateway, and held on the
-  following run. The datastore/cache bullet's regression risk is now cleared:
-  cache-miss-spike returns profile-service, not redis-cache.
-- disk-full's +05:30 → UTC conversion holds across three runs.
+**Week 2, step 1 done** — MongoDB persistence.
+- Incident document (storage) kept separate from LogAnalysis (API message)
+- POST /api/analyze persists and returns the stored incident
+- GET /api/incidents/{id} reads it back
 
-Not doing, and why — all three resolved without a prompt change:
-- Fix (c), confidence calibration anchors. Confidence varies on its own (0.95
-  clear, 0.80–0.90 ambiguous, four distinct values). The "0.95 on everything"
-  concern was an artefact of the early test set.
-- downstream-timeout's UPSTREAM_TIMEOUT → UPSTREAM_UNAVAILABLE drift. Reverted
-  on the unchanged run, so it was variance. The availability vocabulary in the
-  affectedService rule stays as written.
-- out-of-memory's firstOccurrence "stable regression". Also reverted. Two
-  byte-identical runs were not enough to call it stable — see the run-count
-  rule under Prompt engineering learnings. 712362b was never implicated.
-
-Next: Week 1 Step 5. Nothing is queued against the baseline.
+**Next:** seed 15-20 past incidents, then embeddings + vector search,
+then the Resolver Agent.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -69,6 +44,8 @@ Next: Week 1 Step 5. Nothing is queued against the baseline.
   the origin.
 - Jackson `fail-on-unknown-properties` stays **false** (Week 3 Kafka events
   will carry extra fields). `JacksonConfig` logs a WARN so drops stay visible.
+- Incident (storage) and LogAnalysis (API message) are separate types.
+    Storage needs the embedding array; the API must never return it.
 
 ## Cost note
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.
