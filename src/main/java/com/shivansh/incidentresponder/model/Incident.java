@@ -26,8 +26,8 @@ import java.util.List;
  * fields are omitted from the document entirely rather than stored as null.
  * <p>
  * Raw logs are not stored. They are up to 50,000 characters per request, and
- * {@code keyEvidence} is already the compact description of the failure - it is what week
- * 2's similarity search will embed.
+ * {@code keyEvidence} is already the compact description of the failure - it is what the
+ * similarity search embeds.
  *
  * @param id              Mongo's {@code _id}, null until the document has been saved
  * @param errorType       failure class, from the closed {@link ErrorType} vocabulary
@@ -45,6 +45,20 @@ import java.util.List;
  * @param analyzedAt      when this analysis was run, off the server clock. Never null, and
  *                        never inferred - that is what makes it trustworthy for ordering
  *                        and retention where {@code firstOccurrence} is not.
+ * @param embedding       vector representation of this incident's symptoms, used by Atlas
+ *                        Vector Search to find past incidents that look like a new one. Null
+ *                        until the backfill has run over the document, which is exactly how
+ *                        the backfill knows what is left to do.
+ *                        <p>
+ *                        Storage-only, and the reason {@link IncidentResponse} hand-picks
+ *                        fields instead of serialising this record: 384 doubles have no
+ *                        business on the wire, and nothing downstream of the API can use
+ *                        them. Adding a field here cannot leak - {@code IncidentResponse.of}
+ *                        would have to be edited to expose it.
+ *                        <p>
+ *                        What goes into it is not this record's business either. The text is
+ *                        built by {@code IncidentEmbeddingText}, which is also what builds
+ *                        the query side, so the two can never diverge.
  */
 @Document(collection = "incidents")
 public record Incident(
@@ -56,13 +70,18 @@ public record Incident(
         List<String> keyEvidence,
         double confidence,
         String resolutionNotes,
-        Instant analyzedAt
+        Instant analyzedAt,
+        List<Double> embedding
 ) {
 
     /**
      * Builds an unsaved incident from a fresh analysis. The id is null on purpose: Mongo
      * assigns it on insert, and because this is an immutable record the id arrives on the
      * instance {@code save()} <em>returns</em>, not on the one passed in.
+     * <p>
+     * The embedding is null for the same reason {@code resolutionNotes} is: neither exists
+     * yet at the moment of diagnosis. Embedding a live incident on the write path would put
+     * model inference inside the request; it is left to the backfill for now.
      */
     public static Incident from(LogAnalysis analysis, Instant analyzedAt) {
         return new Incident(
@@ -74,7 +93,8 @@ public record Incident(
                 analysis.keyEvidence(),
                 analysis.confidence(),
                 null,
-                analyzedAt);
+                analyzedAt,
+                null);
     }
 
     /** Reassembles the diagnosis half of this document for the API to return. */

@@ -100,6 +100,6 @@ class IncidentServiceTest {
     private static Incident withId(Incident incident, String id) {
         return new Incident(id, incident.errorType(), incident.affectedService(), incident.severity(),
                 incident.firstOccurrence(), incident.keyEvidence(), incident.confidence(),
-                incident.resolutionNotes(), incident.analyzedAt());
+                incident.resolutionNotes(), incident.analyzedAt(), incident.embedding());
     }
 }

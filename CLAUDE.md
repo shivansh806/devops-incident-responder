@@ -57,6 +57,21 @@ one LOW sample.
 - Seeded incidents keep human ids (`INC-2103`); real ones get Mongo's 24-char
   hex ObjectId. That difference is the only thing distinguishing seeded history
   from live data — don't add a `source` field for it, and don't renumber.
+- Embedding text is `errorType` (spelled as lowercase words) + `affectedService`
+  + `keyEvidence`, and **both** the stored side and the query side are built by
+  `IncidentEmbeddingText`. One recipe, two overloads — never build the query
+  text anywhere else. The bound is what the query side can supply: a new
+  incident is a LogAnalysis, so `resolutionNotes` is unusable however
+  informative it looks (it would compare postmortem prose against raw symptoms).
+  `severity`, `confidence` and `firstOccurrence` are excluded as noise.
+  errorType is spelled `connection pool exhausted`, not `ConnectionPoolExhausted`
+  — the tokeniser lowercases before splitting, so PascalCase arrives as one
+  unspaced string and shatters. Don't "simplify" it back to `jsonValue()`.
+- Embeddings run **locally**, in-process (LangChain4j ONNX, all-MiniLM-L6-v2,
+  384 dims). Groq serves no embeddings endpoint at all — verified against their
+  models page — so this was never a quota question. Local keeps tests offline
+  and adds no fourth credential. It also makes retrieval quality deterministic
+  and free to re-measure, unlike the Analyzer baseline.
 
 ## Cost note
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.
@@ -72,6 +87,19 @@ This is the concrete justification for Week 3's Redis caching layer.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
+- **Week 2: no embedding-model marker on Incident**, by the same reasoning that
+  kept a `source` field off it. The trap this leaves, on record before it bites:
+  a *dimension* change (384 → 1536) fails loudly, because the Atlas index has
+  `numDimensions` baked in and rejects the query. A *same-dimension* swap does
+  not — all-MiniLM-L6-v2 and bge-small-en-v1.5 are both 384, so the old vectors
+  stay queryable and simply rank as noise. Nothing detects it. If the model is
+  ever swapped, drop the index and re-backfill all 20 documents **in the same
+  change**, or add the marker at that point.
+- Week 2: `affectedService` is in the embedding text on reasoning, not evidence.
+  Measure it once retrieval works — run the pool trio (INC-2103 / INC-2331 /
+  INC-2464) with and without it and compare rankings. It should pull same-service
+  history together; the risk is that it buries exactly the cross-service matches
+  the trio exists to test. Drop it only on that measurement.
 
 ## Prompt engineering learnings
 - Examples override rules. One worked example without timezones taught the

@@ -50,7 +50,7 @@ class AnalyzeControllerTest {
         return new Incident("651f2c9a4b1d3e0001a2b3c4",
                 analysis.errorType(), analysis.affectedService(), analysis.severity(),
                 analysis.firstOccurrence(), analysis.keyEvidence(), analysis.confidence(),
-                null, ANALYZED_AT);
+                null, ANALYZED_AT, null);
     }
 
     @Test

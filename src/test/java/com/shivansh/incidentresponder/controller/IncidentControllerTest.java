@@ -42,7 +42,11 @@ class IncidentControllerTest {
                 List.of("redis: connection refused"),
                 0.9,
                 "Restarted the redis node and warmed the cache",
-                Instant.parse("2026-08-12T09:00:00Z")));
+                Instant.parse("2026-08-12T09:00:00Z"),
+                // Non-null on purpose: a stored incident that has been through the backfill
+                // carries a vector, and this endpoint must not hand it out. A null here would
+                // make the assertion below pass for the wrong reason.
+                List.of(0.11, -0.42, 0.87)));
 
         mockMvc.perform(get("/api/incidents/{id}", ID))
                 .andExpect(status().isOk())
@@ -55,7 +59,14 @@ class IncidentControllerTest {
                 .andExpect(jsonPath("$.analysis.affectedService").value("profile-service"))
                 .andExpect(jsonPath("$.analysis.severity").value("MEDIUM"))
                 .andExpect(jsonPath("$.analysis.keyEvidence[0]").value("redis: connection refused"))
-                .andExpect(jsonPath("$.analysis.confidence").value(0.9));
+                .andExpect(jsonPath("$.analysis.confidence").value(0.9))
+                // The embedding is storage-only. IncidentResponse hand-picks fields rather
+                // than serialising the document, so this holds structurally - but it holds
+                // by a decision someone could reverse, which is what makes it worth pinning.
+                // Checked at both levels because the response nests, and a leak could land
+                // at either one.
+                .andExpect(jsonPath("$.embedding").doesNotExist())
+                .andExpect(jsonPath("$.analysis.embedding").doesNotExist());
     }
 
     @Test
