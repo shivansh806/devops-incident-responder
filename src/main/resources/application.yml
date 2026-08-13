@@ -1,6 +1,18 @@
 spring:
   application:
     name: devops-incident-responder
+  data:
+    mongodb:
+      # Sourced from MONGODB_URI in .env, same pattern as GROQ_API_KEY - but note the
+      # default differs. An empty API key is still a valid string that simply fails at
+      # call time; an empty connection string cannot be parsed and would stop the context
+      # from starting at all. So the fallback is a local Mongo rather than "".
+      uri: ${MONGODB_URI:mongodb://localhost:27017}
+      # Set explicitly because an Atlas connection string copied out of the UI usually
+      # carries no database name, and Spring's fallback in that case is "test" - which
+      # would look like it worked while writing to the wrong place. This property wins
+      # over any database named in the URI.
+      database: ${MONGODB_DATABASE:incident_responder}
 
 server:
   port: 8080

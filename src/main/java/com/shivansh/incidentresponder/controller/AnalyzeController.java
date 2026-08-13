@@ -1,9 +1,9 @@
 package com.shivansh.incidentresponder.controller;
 
 import com.shivansh.incidentresponder.model.AnalyzeRequest;
-import com.shivansh.incidentresponder.model.LogAnalysis;
+import com.shivansh.incidentresponder.model.IncidentResponse;
 import com.shivansh.incidentresponder.service.AnalysisFailedException;
-import com.shivansh.incidentresponder.service.AnalyzerService;
+import com.shivansh.incidentresponder.service.IncidentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,11 +20,16 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AnalyzeController {
 
-    private final AnalyzerService analyzerService;
+    private final IncidentService incidentService;
 
+    /**
+     * The diagnosis is now returned wrapped in the incident that was stored for it, so the
+     * caller gets the id without a second call. The analysis itself is unchanged and sits
+     * under {@code analysis}; read it back later at {@code GET /api/incidents/{id}}.
+     */
     @PostMapping("/analyze")
-    public LogAnalysis analyze(@RequestBody AnalyzeRequest request) {
-        return analyzerService.analyze(request.logs(), request.serviceName());
+    public IncidentResponse analyze(@RequestBody AnalyzeRequest request) {
+        return IncidentResponse.of(incidentService.analyzeAndRecord(request.logs(), request.serviceName()));
     }
 
     /** Caller's fault: missing or oversized logs. */

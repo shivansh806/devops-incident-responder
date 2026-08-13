@@ -2,10 +2,11 @@ package com.shivansh.incidentresponder.controller;
 
 import com.shivansh.incidentresponder.config.JacksonConfig;
 import com.shivansh.incidentresponder.model.ErrorType;
+import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.model.Severity;
 import com.shivansh.incidentresponder.service.AnalysisFailedException;
-import com.shivansh.incidentresponder.service.AnalyzerService;
+import com.shivansh.incidentresponder.service.IncidentService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,51 +37,66 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(OutputCaptureExtension.class)
 class AnalyzeControllerTest {
 
+    private static final Instant ANALYZED_AT = Instant.parse("2026-08-12T09:00:00Z");
+
     @Autowired
     private MockMvc mockMvc;
 
     @MockitoBean
-    private AnalyzerService analyzerService;
+    private IncidentService incidentService;
+
+    /** A saved incident, as the repository would hand it back with its id filled in. */
+    private static Incident stored(LogAnalysis analysis) {
+        return new Incident("651f2c9a4b1d3e0001a2b3c4",
+                analysis.errorType(), analysis.affectedService(), analysis.severity(),
+                analysis.firstOccurrence(), analysis.keyEvidence(), analysis.confidence(),
+                null, ANALYZED_AT);
+    }
 
     @Test
-    void returnsTheStructuredAnalysis() throws Exception {
-        given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(new LogAnalysis(
+    void returnsTheStructuredAnalysisWithTheStoredIncidentId() throws Exception {
+        given(incidentService.analyzeAndRecord("HikariPool-1 timed out", null)).willReturn(stored(new LogAnalysis(
                 ErrorType.CONNECTION_POOL_EXHAUSTED,
                 "payment-service",
                 Severity.CRITICAL,
                 Instant.parse("2026-08-05T02:14:33Z"),
                 List.of("HikariPool-1 - Connection is not available"),
-                0.87));
+                0.87)));
 
         mockMvc.perform(post("/api/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"logs\":\"HikariPool-1 timed out\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.errorType").value("ConnectionPoolExhausted"))
-                .andExpect(jsonPath("$.affectedService").value("payment-service"))
-                .andExpect(jsonPath("$.severity").value("CRITICAL"))
-                .andExpect(jsonPath("$.firstOccurrence").value("2026-08-05T02:14:33Z"))
-                .andExpect(jsonPath("$.keyEvidence[0]").value("HikariPool-1 - Connection is not available"))
-                .andExpect(jsonPath("$.confidence").value(0.87));
+                .andExpect(jsonPath("$.id").value("651f2c9a4b1d3e0001a2b3c4"))
+                .andExpect(jsonPath("$.analyzedAt").value("2026-08-12T09:00:00Z"))
+                // Open incident: nothing has resolved it yet.
+                .andExpect(jsonPath("$.resolutionNotes").doesNotExist())
+                // The analysis itself is unchanged from week 1, one level down.
+                .andExpect(jsonPath("$.analysis.errorType").value("ConnectionPoolExhausted"))
+                .andExpect(jsonPath("$.analysis.affectedService").value("payment-service"))
+                .andExpect(jsonPath("$.analysis.severity").value("CRITICAL"))
+                .andExpect(jsonPath("$.analysis.firstOccurrence").value("2026-08-05T02:14:33Z"))
+                .andExpect(jsonPath("$.analysis.keyEvidence[0]").value("HikariPool-1 - Connection is not available"))
+                .andExpect(jsonPath("$.analysis.confidence").value(0.87));
     }
 
     @Test
     void forwardsTheCallerSuppliedServiceName() throws Exception {
-        given(analyzerService.analyze("HikariPool-1 timed out", "payment-service")).willReturn(
-                new LogAnalysis(ErrorType.CONNECTION_POOL_EXHAUSTED, "payment-service", Severity.CRITICAL,
-                        null, List.of(), 0.9));
+        given(incidentService.analyzeAndRecord("HikariPool-1 timed out", "payment-service")).willReturn(
+                stored(new LogAnalysis(ErrorType.CONNECTION_POOL_EXHAUSTED, "payment-service", Severity.CRITICAL,
+                        null, List.of(), 0.9)));
 
         mockMvc.perform(post("/api/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"logs\":\"HikariPool-1 timed out\",\"serviceName\":\"payment-service\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.affectedService").value("payment-service"));
+                .andExpect(jsonPath("$.analysis.affectedService").value("payment-service"));
     }
 
     @Test
     void warnsAboutUnknownPropertiesButStillSucceeds(CapturedOutput output) throws Exception {
-        given(analyzerService.analyze(anyString(), any())).willReturn(new LogAnalysis(
-                ErrorType.UPSTREAM_TIMEOUT, "unknown", Severity.HIGH, null, List.of(), 0.6));
+        given(incidentService.analyzeAndRecord(anyString(), any())).willReturn(stored(new LogAnalysis(
+                ErrorType.UPSTREAM_TIMEOUT, "unknown", Severity.HIGH, null, List.of(), 0.6)));
 
         // "service_name" is a plausible typo for "serviceName" - it must not be fatal,
         // but it must not vanish silently either.
@@ -95,20 +111,23 @@ class AnalyzeControllerTest {
 
     @Test
     void serialisesAMissingTimestampAsNull() throws Exception {
-        given(analyzerService.analyze(anyString(), any())).willReturn(new LogAnalysis(
-                ErrorType.NOT_A_LOG_FILE, "unknown", Severity.LOW, null, List.of(), 0.0));
+        given(incidentService.analyzeAndRecord(anyString(), any())).willReturn(stored(new LogAnalysis(
+                ErrorType.NOT_A_LOG_FILE, "unknown", Severity.LOW, null, List.of(), 0.0)));
 
         mockMvc.perform(post("/api/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"logs\":\"hello there\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.firstOccurrence").doesNotExist());
+                .andExpect(jsonPath("$.analysis.firstOccurrence").doesNotExist())
+                // The record of when we looked survives even when the logs carry no time of
+                // their own - which is the reason the two fields are separate.
+                .andExpect(jsonPath("$.analyzedAt").value("2026-08-12T09:00:00Z"));
     }
 
     @Test
     void returns400WhenLogsAreMissing() throws Exception {
         willThrow(new IllegalArgumentException("'logs' must not be empty"))
-                .given(analyzerService).analyze(null, null);
+                .given(incidentService).analyzeAndRecord(null, null);
 
         mockMvc.perform(post("/api/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -120,7 +139,7 @@ class AnalyzeControllerTest {
     @Test
     void returns502WhenTheAgentFails() throws Exception {
         willThrow(new AnalysisFailedException("Analyzer agent call failed: timeout"))
-                .given(analyzerService).analyze(anyString(), any());
+                .given(incidentService).analyzeAndRecord(anyString(), any());
 
         mockMvc.perform(post("/api/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
