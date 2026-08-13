@@ -1,0 +1,302 @@
+[
+  {
+    "id": "INC-2041",
+    "errorType": "CacheUnavailable",
+    "affectedService": "product-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-02-17T09:12:44Z",
+    "keyEvidence": [
+      "io.lettuce.core.RedisCommandTimeoutException: Command timed out after 5 second(s)",
+      "redis-prod-002 role change: MASTER -> REPLICA (sentinel failover, 09:12:41)",
+      "cache hit ratio 0.94 -> 0.03 over 90s; postgres read IOPS 400 -> 11200"
+    ],
+    "confidence": 0.91,
+    "resolutionNotes": "Sentinel promoted redis-prod-003 correctly and the failover itself was clean - the cache was never actually down. Our Lettuce client was configured with a static host list pointing straight at redis-prod-002, so it kept issuing writes to a node that had become a replica and got READONLY errors until the command timeout fired. Reconfigured the client to connect through the sentinel set instead of the node addresses, which is what makes topology changes transparent to it. Verified by forcing a manual failover in staging: hit ratio dipped for 4s and recovered on its own. Left the origin database alone - it absorbed the load fine and was not the problem.",
+    "analyzedAt": "2026-02-17T09:31:10Z"
+  },
+  {
+    "id": "INC-2057",
+    "errorType": "DiskSpaceExhausted",
+    "affectedService": "log-aggregator",
+    "severity": "MEDIUM",
+    "firstOccurrence": "2026-02-24T03:48:02Z",
+    "keyEvidence": [
+      "java.io.IOException: No space left on device",
+      "/var/log filesystem at 100% (48G/48G), inode usage 12%",
+      "Ingest pipeline dropped 1.4M events between 03:48 and 06:20"
+    ],
+    "confidence": 0.95,
+    "resolutionNotes": "A deploy three weeks earlier renamed the app log from service.log to service-json.log to switch on structured logging, but the logrotate config still matched the old name. Nothing rotated for 21 days. Freed space by compressing the backlog, then changed the logrotate pattern to a wildcard so a future rename cannot silently disable it again, and added a disk-usage alert at 80% - there was no alert at all on this host, which is why it ran to 100% overnight instead of being caught. The dropped events were unrecoverable; accepted, as this host carries logs only and no customer data.",
+    "analyzedAt": "2026-02-24T06:35:29Z"
+  },
+  {
+    "id": "INC-2088",
+    "errorType": "OutOfMemory",
+    "affectedService": "search-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-03-04T11:07:19Z",
+    "keyEvidence": [
+      "java.lang.OutOfMemoryError: Java heap space",
+      "GC overhead: 94% of last 60s spent in Full GC, 11 collections, heap after 3.9G/4G",
+      "Heap dump: java.util.concurrent.ConcurrentHashMap retained 3.1G in SuggestionCache"
+    ],
+    "confidence": 0.93,
+    "resolutionNotes": "SuggestionCache was a plain ConcurrentHashMap with a put on every autocomplete miss and no eviction of any kind, so it grew with the cardinality of user typing rather than with traffic. It had survived a year because most queries repeat; a bot crawling product URLs generated millions of unique prefixes in an afternoon and the map tracked all of them. Replaced it with a Caffeine cache bounded to 50k entries with a 10-minute expiry. Deliberately did not raise -Xmx: the map was unbounded, so a larger heap only moves the crash later. Hit ratio after the change settled at 0.88 versus 0.91 before, which was an acceptable trade for a fixed ceiling.",
+    "analyzedAt": "2026-03-04T11:44:53Z"
+  },
+  {
+    "id": "INC-2103",
+    "errorType": "ConnectionPoolExhausted",
+    "affectedService": "payment-service",
+    "severity": "CRITICAL",
+    "firstOccurrence": "2026-03-09T14:22:07Z",
+    "keyEvidence": [
+      "HikariPool-1 - Connection is not available, request timed out after 30000ms",
+      "HikariPool-1 - Pool stats (total=10, active=10, idle=0, waiting=47)",
+      "Payment authorisation error rate 2% -> 61% within 4 minutes"
+    ],
+    "confidence": 0.89,
+    "resolutionNotes": "PaymentRepository.processRefund() opened a transaction and then made the outbound gateway call inside it, so each refund held a database connection for the full duration of an HTTP request to the payment gateway. Normally that is 300ms and invisible. The gateway was running slow that afternoon (~9s), and a refund backlog of 60 concurrent calls pinned all 10 connections with the rest queuing behind the 30s timeout. Moved the gateway call out of the transaction: read the refund row, commit, call the gateway, then reopen a short transaction to record the result. Left maximum-pool-size at 10 on purpose - raising it would have absorbed this particular incident and hidden the fact that connections were being held across a network call. Throughput was unchanged after the fix, confirming the pool was never the constraint.",
+    "analyzedAt": "2026-03-09T14:58:31Z"
+  },
+  {
+    "id": "INC-2118",
+    "errorType": "DatabaseUnavailable",
+    "affectedService": "analytics-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-03-12T02:03:55Z",
+    "keyEvidence": [
+      "com.mongodb.MongoSocketReadException: Prematurely reached end of stream",
+      "No primary available for replica set atlas-prod-shard-0 (election in progress, 21s)",
+      "Nightly rollup job aborted at 02:04:11 after writing 3 of 14 collections"
+    ],
+    "confidence": 0.86,
+    "resolutionNotes": "Scheduled Atlas maintenance stepped down the primary and the election took 21 seconds, which is within normal bounds. The outage was ours: the rollup job ran with retryWrites disabled, left over from a 2024 migration when the driver did not support it against our then-current server version, so every write during the election failed permanently instead of being retried. Re-enabled retryWrites and made the job idempotent per collection so a partial run can be re-driven without double-counting - it previously appended, which is why the 3 completed collections had to be repaired by hand. Also moved the job off 02:00, which sits inside the Atlas maintenance window.",
+    "analyzedAt": "2026-03-12T08:15:02Z"
+  },
+  {
+    "id": "INC-2146",
+    "errorType": "UpstreamTimeout",
+    "affectedService": "checkout-service",
+    "severity": "CRITICAL",
+    "firstOccurrence": "2026-03-21T18:41:12Z",
+    "keyEvidence": [
+      "java.net.SocketTimeoutException: Read timed out calling payment-gateway/v2/authorize",
+      "p99 latency to payment-gateway 280ms -> 24000ms in 6 minutes",
+      "Tomcat threads busy 200/200, connector accept queue full, 503s returned to load balancer"
+    ],
+    "confidence": 0.94,
+    "resolutionNotes": "The payment gateway had a genuine regional degradation on their side, confirmed on their status page at 18:52. What turned their slowdown into our total outage is that we had no circuit breaker: every checkout request kept a Tomcat worker blocked for the full 25s read timeout, so all 200 workers were consumed inside six minutes and even the health endpoint stopped answering. Added a Resilience4j circuit breaker around the gateway client (50% failure rate over a 20-call window, 30s open) and dropped the read timeout from 25s to 3s, which is well above their p99 of 280ms. Fast failure now returns a retry-later page instead of taking the whole service down with the dependency. Rehearsed with a toxiproxy latency injection before shipping.",
+    "analyzedAt": "2026-03-21T19:22:40Z"
+  },
+  {
+    "id": "INC-2179",
+    "errorType": "ExpiredCertificate",
+    "affectedService": "api-gateway",
+    "severity": "CRITICAL",
+    "firstOccurrence": "2026-04-02T00:00:31Z",
+    "keyEvidence": [
+      "SSLHandshakeException: PKIX path validation failed: certificate expired on 2026-04-02T00:00:00Z",
+      "Subject CN=api.example.com, NotAfter=2026-04-02T00:00:00Z",
+      "All external clients failing TLS handshake; internal mesh traffic unaffected"
+    ],
+    "confidence": 0.96,
+    "resolutionNotes": "The public TLS certificate simply ran out. cert-manager had been failing its renewal for 27 days because the ACME DNS-01 solver lost permission on the hosted zone after an IAM policy tidy-up in March; the CertificateRequest sat in a failed state and nothing was watching it. Issued a certificate manually to restore service in 12 minutes, then restored the IAM permission and let cert-manager take over again. The real fix was monitoring: added an alert on cert-manager CertificateRequest failures and a blackbox probe that alerts at 21 days to expiry, so a stuck renewal is now visible three weeks before it becomes an outage rather than at midnight.",
+    "analyzedAt": "2026-04-02T00:19:44Z"
+  },
+  {
+    "id": "INC-2194",
+    "errorType": "UpstreamTimeout",
+    "affectedService": "user-service",
+    "severity": "MEDIUM",
+    "firstOccurrence": "2026-04-11T13:26:08Z",
+    "keyEvidence": [
+      "Timeout after 5000ms calling auth-service/v1/introspect",
+      "Latency bimodal: 12ms or 5012ms, roughly 1 request in 5",
+      "auth-service own p99 8ms, zero errors logged on the callee side"
+    ],
+    "confidence": 0.78,
+    "resolutionNotes": "auth-service was healthy throughout - it never saw the slow requests, which is what made this take two hours. The 5000ms was a DNS resolver timeout, not a service timeout. A cluster change set ndots:5 in the pod resolv.conf, so the short name auth-service was tried against five search domains first; one of the upstream resolvers was blackholing NXDOMAIN responses rather than answering, and every query that landed on it waited the full 5s before falling through. Fixed by using the fully qualified name with a trailing dot in the client config so the search list is skipped entirely, and separately raised the blackholing resolver with the platform team. The bimodal latency histogram was the giveaway: a loaded dependency degrades continuously, a resolver timeout is a constant.",
+    "analyzedAt": "2026-04-11T15:33:20Z"
+  },
+  {
+    "id": "INC-2231",
+    "errorType": "SlowQuery",
+    "affectedService": "order-service",
+    "severity": "LOW",
+    "firstOccurrence": "2026-04-27T10:14:50Z",
+    "keyEvidence": [
+      "Slow query log: SELECT * FROM orders WHERE merchant_id = ? AND status = ? ORDER BY created_at DESC took 8420ms",
+      "Query plan: Seq Scan on orders (rows=41200311), filter removed 41199987 rows",
+      "Only the internal merchant dashboard affected; customer-facing order APIs unchanged"
+    ],
+    "confidence": 0.92,
+    "resolutionNotes": "The orders table crossed 41M rows and an index on merchant_id alone stopped being selective enough for the planner, which fell back to a sequential scan. Added a composite index on (merchant_id, status, created_at DESC) matching the query's filter and sort, which took the query from 8.4s to 11ms. Built it CONCURRENTLY so the table was never locked. Kept the severity low because this path is only the internal merchant dashboard - roughly 40 staff users - and no customer request touches it; the fix was scheduled for the next working day rather than done under incident conditions. Worth noting for anyone reading this later: the query itself never changed, only the table size did, so there was no deploy to correlate against.",
+    "analyzedAt": "2026-04-27T11:02:15Z"
+  },
+  {
+    "id": "INC-2258",
+    "errorType": "CacheUnavailable",
+    "affectedService": "pricing-service",
+    "severity": "CRITICAL",
+    "firstOccurrence": "2026-05-06T16:55:03Z",
+    "keyEvidence": [
+      "Cache hit ratio 0.97 -> 0.00 instantaneously at 16:55:03",
+      "Redis INFO: keyspace empty, db0 keys=0, uptime 41 days (no restart)",
+      "Pricing recomputation queue depth 0 -> 190000; p99 price lookup 4ms -> 6100ms"
+    ],
+    "confidence": 0.88,
+    "resolutionNotes": "Somebody ran a data-reset script against what they believed was staging Redis. The instance had 41 days of uptime and no restart, and the keyspace went to zero in a single second - that pattern is a FLUSHALL, not a failure. The script read its host from an env file that had been copied from a production runbook. Recovered by warming the cache from the pricing database in batches over 25 minutes, throttled so the recompute did not take the database down as well. Hardened afterwards: renamed FLUSHALL and FLUSHDB to disabled commands in the production Redis config, put the production instance behind separate credentials that developer tooling does not hold, and removed the copied env file. No blame attached to the operator - the two environments were indistinguishable from the client's point of view, which is a design failure and not a human one.",
+    "analyzedAt": "2026-05-06T17:41:38Z"
+  },
+  {
+    "id": "INC-2274",
+    "errorType": "OutOfMemory",
+    "affectedService": "report-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-05-14T22:10:41Z",
+    "keyEvidence": [
+      "java.lang.OutOfMemoryError: Java heap space at java.util.Arrays.copyOf",
+      "Thread report-export-3 at ReportRepository.findAllTransactionsForPeriod(ReportRepository.java:88)",
+      "Failure only on month-end exports; the same endpoint succeeds for weekly ranges"
+    ],
+    "confidence": 0.9,
+    "resolutionNotes": "The monthly CSV export loaded the whole result set into a List before writing a single row - about 2.4M transactions for the largest merchant, roughly 3.6G of objects against a 4G heap. Weekly exports were a tenth of that and had always fit, so this only ever failed at month end. Rewrote the export to stream: a JDBC forward-only cursor with fetch size 1000, writing rows straight to the response as they arrive, with the entity manager cleared each batch so nothing accumulates in the persistence context. Peak heap for the same export is now under 200M and it is no longer sensitive to merchant size at all. Same OutOfMemoryError signature as INC-2088 but nothing in common underneath: that one was an unbounded cache growing over hours, this is a single request materialising too much at once.",
+    "analyzedAt": "2026-05-14T22:47:09Z"
+  },
+  {
+    "id": "INC-2296",
+    "errorType": "ConfigurationError",
+    "affectedService": "notification-service",
+    "severity": "LOW",
+    "firstOccurrence": "2026-05-23T09:30:12Z",
+    "keyEvidence": [
+      "Feature flag notifications.digest.enabled resolved to false after restart, expected true",
+      "No flag change recorded in the audit log for 11 days",
+      "Daily digest emails not sent for 1 cycle; transactional email unaffected"
+    ],
+    "confidence": 0.71,
+    "resolutionNotes": "The digest flag was enabled in the flag service but the client fell back to its compiled-in default of false because the flag service was briefly unreachable during pod startup, and the client only fetched once at boot with no retry. One deploy cycle of digest emails was missed and later re-sent by hand. Changed the flag client to block startup for up to 10s and then retry in the background rather than silently defaulting, and set the compiled default for this flag to true so the fallback matches the intended state. Low severity because it affected one non-critical email batch, but recording it because a config value that silently disagrees with its source of truth is a pattern worth recognising: nothing errored, the service just quietly did something else.",
+    "analyzedAt": "2026-05-23T14:08:55Z"
+  },
+  {
+    "id": "INC-2331",
+    "errorType": "ConnectionPoolExhausted",
+    "affectedService": "order-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-06-03T19:05:27Z",
+    "keyEvidence": [
+      "HikariPool-1 - Connection is not available, request timed out after 10000ms",
+      "HikariPool-1 - Pool stats (total=20, active=20, idle=0, waiting=88)",
+      "Connection acquisition p99 3ms -> 9800ms; per-query duration unchanged at 4ms"
+    ],
+    "confidence": 0.84,
+    "resolutionNotes": "No leak here and no slow query - individual query time never moved, only the wait to get a connection. The pool was sized at 20 in 2024 and traffic on this service has roughly tripled since; a marketing push that evening pushed sustained concurrency past what 20 connections can serve. Raised maximum-pool-size to 60 after checking the database side had headroom (max_connections 500, 6 service instances, so 360 worst case leaves room for maintenance sessions), and added an alert on hikaricp_connections_pending so we find out from the metric rather than from failed orders. Worth contrasting with INC-2103: identical error message, opposite conclusion. There the fix was to stop holding connections and explicitly not to grow the pool; here growing the pool was correct because nothing was being held wrongly. Acquisition time versus query time is what separates the two.",
+    "analyzedAt": "2026-06-03T19:38:44Z"
+  },
+  {
+    "id": "INC-2352",
+    "errorType": "CacheUnavailable",
+    "affectedService": "session-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-06-12T07:44:19Z",
+    "keyEvidence": [
+      "OOM command not allowed when used memory > maxmemory",
+      "Redis used_memory 8.00G / maxmemory 8.00G, maxmemory_policy noeviction, evicted_keys 0",
+      "Reads served normally throughout; only session writes and refreshes failed"
+    ],
+    "confidence": 0.87,
+    "resolutionNotes": "Redis was up and serving reads the whole time, which is why the health check stayed green. It had reached maxmemory with policy noeviction, so it rejected every write while continuing to answer reads - users with a warm session were fine and anyone logging in or refreshing got an error. The growth was from session keys written without a TTL by a code path added six weeks earlier, so they accumulated instead of expiring. Set maxmemory-policy to volatile-lru as an immediate mitigation, then fixed the real cause by making the session write helper require an explicit TTL argument so it is not possible to write a session key without one. Backfilled TTLs onto the existing keys with a scan. Note that evicted_keys=0 alongside used=maxmemory is the specific signature of noeviction, and it looks nothing like the failover in INC-2041 or the flush in INC-2258 despite all three reading as a cache problem.",
+    "analyzedAt": "2026-06-12T08:26:03Z"
+  },
+  {
+    "id": "INC-2378",
+    "errorType": "ThreadPoolExhausted",
+    "affectedService": "notification-service",
+    "severity": "MEDIUM",
+    "firstOccurrence": "2026-06-25T15:18:36Z",
+    "keyEvidence": [
+      "RejectedExecutionException: Task rejected from ThreadPoolExecutor (pool size = 8, active = 8, queued tasks = 10000)",
+      "Thread dump: 8 of 8 reactor-http-nio threads in BLOCKED state inside HikariPool.getConnection",
+      "Push notification delivery lag 2s -> 14 minutes"
+    ],
+    "confidence": 0.85,
+    "resolutionNotes": "A change added a JDBC lookup for user preferences directly inside a reactive handler. The event-loop pool is sized to the core count (8) on purpose because it is only ever meant to hold non-blocking work; a blocking database call on those threads takes the entire service out with far less traffic than it looks like it should need. Moved the JDBC call onto a bounded elastic scheduler so the event loop stays free, and added BlockHound to the test profile, which fails a test at the moment a blocking call happens on a reactive thread rather than letting it reach production. Enlarging the pool was considered and rejected - it would have raised the traffic level at which this fails without changing that it fails.",
+    "analyzedAt": "2026-06-25T15:59:12Z"
+  },
+  {
+    "id": "INC-2401",
+    "errorType": "UpstreamTimeout",
+    "affectedService": "order-service",
+    "severity": "MEDIUM",
+    "firstOccurrence": "2026-07-04T12:02:44Z",
+    "keyEvidence": [
+      "Read timed out after 30000ms calling inventory-service/v1/reserve",
+      "inventory-service p99 620ms, p999 1400ms, error rate 0.0% for the same window",
+      "Checkout page abandoned by users after 30s spinner; no server-side error until the timeout fired"
+    ],
+    "confidence": 0.74,
+    "resolutionNotes": "There was no upstream outage. inventory-service answered every call within 1.4s at worst. Our client timeout was 30s - a framework default nobody had changed - while the checkout flow's own budget for this call is 2s, so a call that was merely slow held the user on a spinner for half a minute and they left before it returned. Set the client read timeout to 2s to match the actual budget and added a retry with jitter for the one attempt that fits inside it. The lesson recorded at the time: a timeout longer than the caller's own deadline cannot protect anything, it only decides how long the failure takes to become visible. Filed as an incident rather than a bug because MTTR here was spent looking for a dependency problem that did not exist.",
+    "analyzedAt": "2026-07-04T13:47:51Z"
+  },
+  {
+    "id": "INC-2429",
+    "errorType": "RateLimited",
+    "affectedService": "shipping-service",
+    "severity": "MEDIUM",
+    "firstOccurrence": "2026-07-15T11:33:07Z",
+    "keyEvidence": [
+      "HTTP 429 Too Many Requests from carrier-api/v3/rates, Retry-After: 3600",
+      "Daily quota 50000 consumed by 11:33; same period previous week consumed 21000",
+      "Outbound request count to carrier-api 3x baseline with identical order volume"
+    ],
+    "confidence": 0.82,
+    "resolutionNotes": "Order volume was flat, so the quota burn was ours. A retry policy shipped the previous week retried on any non-2xx including 429 itself, with a fixed 1s delay and no cap, so each rate-limited call generated more rate-limited calls - the quota was consumed roughly three times faster than it should have been and was gone before midday. Stopped retrying 429 entirely and made the client honour Retry-After, then added a 15-minute cache on rate quotes, which are stable at that granularity and cut steady-state call volume by about 60%. Also added a quota-consumption metric with an alert at 70% by midday, because the first signal of this was customers unable to see shipping options.",
+    "analyzedAt": "2026-07-15T12:20:33Z"
+  },
+  {
+    "id": "INC-2464",
+    "errorType": "ConnectionPoolExhausted",
+    "affectedService": "inventory-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-07-28T08:51:22Z",
+    "keyEvidence": [
+      "HikariPool-1 - Connection is not available, request timed out after 20000ms",
+      "HikariPool-1 - Pool stats (total=30, active=30, idle=0, waiting=64)",
+      "Slow query log: stock_movements aggregate 90ms -> 6800ms starting 08:47, five minutes before the first pool timeout"
+    ],
+    "confidence": 0.79,
+    "resolutionNotes": "The pool exhaustion was a symptom and treating it directly would have been wrong. A nightly ETL job had dropped and was rebuilding an index on stock_movements, and while it was missing the stock aggregate went from 90ms to 6.8s. Each of those queries holds a connection for 6.8s instead of 90ms, so the same request rate needed roughly 75 times the connections and drained a 30-connection pool in minutes. The timestamps are the argument: the query degraded at 08:47 and the pool ran dry at 08:51, not the other way round. Restored the index and the pool recovered on its own without any config change. Changed the ETL to build the replacement index CONCURRENTLY and swap it, so the table is never without one. Third connection-pool incident this year with three different causes - leak in INC-2103, undersized in INC-2331, downstream slowness here - and the error message is identical in all three.",
+    "analyzedAt": "2026-07-28T09:37:40Z"
+  },
+  {
+    "id": "INC-2491",
+    "errorType": "ExpiredCertificate",
+    "affectedService": "billing-service",
+    "severity": "MEDIUM",
+    "firstOccurrence": "2026-08-05T04:00:18Z",
+    "keyEvidence": [
+      "SSLHandshakeException: Received fatal alert: certificate_expired during handshake with ledger-service",
+      "Client certificate CN=billing-service.internal, NotAfter=2026-08-05T03:00:00Z",
+      "ledger-service TLS endpoint healthy; browser and service-to-service traffic from other callers unaffected"
+    ],
+    "confidence": 0.93,
+    "resolutionNotes": "This is the mirror image of INC-2179 and is worth keeping separate for that reason. There the server certificate expired and every client failed; here the server was fine and one client's own mTLS certificate expired, so only billing-service could not talk to ledger-service and everything else looked healthy. The certificate was issued by the internal CA and rotated by hand because this service predates the mesh onboarding, so cert-manager was never watching it and the 21-day probe added after INC-2179 only covers public endpoints. Reissued the client certificate and finally onboarded billing-service to the mesh so rotation is automatic. Extended the expiry probe to internal client certificates as well. Impact was limited to the nightly ledger reconciliation, which was re-driven at 09:00 with no customer effect.",
+    "analyzedAt": "2026-08-05T07:12:26Z"
+  },
+  {
+    "id": "INC-2507",
+    "errorType": "OutOfMemory",
+    "affectedService": "notification-service",
+    "severity": "HIGH",
+    "firstOccurrence": "2026-08-09T20:37:55Z",
+    "keyEvidence": [
+      "Pod terminated with reason OOMKilled, exit code 137, restart count 14 in 40 minutes",
+      "No java.lang.OutOfMemoryError and no heap dump written; JVM logs end mid-request",
+      "container_memory_working_set_bytes 2.04G against limit 2G; heap used at the time 1.3G of 1.5G max"
+    ],
+    "confidence": 0.88,
+    "resolutionNotes": "The JVM never threw OutOfMemoryError and never wrote a heap dump - the kernel killed the process, which is the distinction that matters here. The container limit was 2G while -Xmx was set to 1.5G, leaving only 500M for metaspace, thread stacks, code cache and direct buffers; a Netty direct-buffer arena of about 300M was enough to push the total past the limit, so the container died while the heap was comfortably under its own ceiling. Removed the explicit -Xmx and switched to -XX:MaxRAMPercentage=70, which makes the JVM read the cgroup limit and size itself from it, and raised the container limit to 3G. Two clues to remember: exit code 137 with no OutOfMemoryError means the kernel, not the JVM, and a restart count climbing while heap metrics look healthy points at everything outside the heap. Same error class as INC-2088 and INC-2274, but the fix here was in the deployment manifest and not in the code at all.",
+    "analyzedAt": "2026-08-09T21:29:47Z"
+  }
+]

@@ -31,8 +31,16 @@ one LOW sample.
 - POST /api/analyze persists and returns the stored incident
 - GET /api/incidents/{id} reads it back
 
-**Next:** seed 15-20 past incidents, then embeddings + vector search,
-then the Resolver Agent.
+**Week 2, step 2 done** — 20 resolved past incidents seeded.
+- Data in `src/main/resources/seed/incidents.json`, loaded by `IncidentSeeder`
+  under the `seed` profile. Run once with `seed` in IntelliJ's Active profiles.
+- Idempotent by fixed ids (`INC-2041`…`INC-2507`), not by a marker field.
+  `insert()` on the missing ids only — never `save()`, which upserts and would
+  wipe the embedding array the next step adds.
+- Covers 11 errorTypes, 16 services, all four severities, Feb–Aug 2026.
+- Zero LLM calls; `IncidentSeederTest` runs offline.
+
+**Next:** embeddings + vector search, then the Resolver Agent.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -46,6 +54,9 @@ then the Resolver Agent.
   will carry extra fields). `JacksonConfig` logs a WARN so drops stay visible.
 - Incident (storage) and LogAnalysis (API message) are separate types.
     Storage needs the embedding array; the API must never return it.
+- Seeded incidents keep human ids (`INC-2103`); real ones get Mongo's 24-char
+  hex ObjectId. That difference is the only thing distinguishing seeded history
+  from live data — don't add a `source` field for it, and don't renumber.
 
 ## Cost note
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.
