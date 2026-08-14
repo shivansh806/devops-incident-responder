@@ -77,6 +77,12 @@ one LOW sample.
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.
 This is the concrete justification for Week 3's Redis caching layer.
 
+Embeddings cost nothing against that budget — they run locally, not on Groq.
+They cost **size** instead: ~200MB of jars (83MB model + 93MB onnxruntime +
+19MB DJL tokenizer), which lands in the Week 4 Docker image. Budget for it
+there rather than being surprised by it; the `-q` quantized model is the lever
+if it matters.
+
 ## Known decisions to revisit
 - Week 3: Kafka consumer needs its own ObjectMapper without the
   unknown-property WARN handler (would flood logs at event rate)

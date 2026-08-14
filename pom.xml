@@ -23,6 +23,13 @@
         <!-- Core library and the Spring starters are versioned separately upstream. -->
         <langchain4j.version>1.18.1</langchain4j.version>
         <langchain4j-spring.version>1.18.1-beta28</langchain4j-spring.version>
+        <!--
+            Matches langchain4j-spring.version today because the in-process embedding models
+            happen to ride the same beta line. Kept as its own property because that is a
+            release-cadence coincidence, not a guarantee, and bumping one should not silently
+            drag the other.
+        -->
+        <langchain4j-embeddings.version>1.18.1-beta28</langchain4j-embeddings.version>
         <spring-dotenv.version>5.1.0</spring-dotenv.version>
         <!-- Overridable so the llm-tagged baseline can be run on demand; see surefire below. -->
         <surefire.excludedGroups>llm</surefire.excludedGroups>
@@ -54,6 +61,27 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
             <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!--
+            all-MiniLM-L6-v2 as an ONNX model that runs inside this JVM: no embeddings API,
+            no key, no quota, and tests that touch it stay offline. Groq serves no embeddings
+            endpoint at all, so a hosted model would have meant a fourth credential from a
+            fourth provider.
+
+            Be aware of the weight before adding more of these. The artifact is 83MB of model
+            weights, and it pulls onnxruntime (93MB) and the DJL HuggingFace tokenizer (19MB)
+            behind it - roughly 200MB, which lands in the week 4 Docker image. The tokenizer's
+            native libraries for win-x86_64 are bundled inside its jar rather than fetched on
+            first use, which is what keeps the whole thing offline.
+
+            A "-q" quantized variant of the model exists and is far smaller, at some cost in
+            quality. Worth revisiting if image size becomes the problem; not before.
+        -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-embeddings-all-minilm-l6-v2</artifactId>
+            <version>${langchain4j-embeddings.version}</version>
         </dependency>
 
         <!--

@@ -43,11 +43,12 @@ import java.util.Objects;
  * before the pool drained - is written in their evidence lines, and is observable at query
  * time. That is the whole reason retrieval can beat filtering on {@code errorType}.
  * <p>
- * <b>Size.</b> all-MiniLM-L6-v2 truncates at roughly 256 tokens and says nothing when it
- * does. This recipe lands around 60-90 tokens on the seeded data; the full document, with
- * resolution prose, would run past the limit and lose its tail silently. There is no guard
- * here on purpose - the honest place to measure real lengths is where the model is actually
- * called, on real data, rather than guessing a cap now.
+ * <b>Size.</b> all-MiniLM-L6-v2 does not truncate - it accepts input of any length - but its
+ * documented quality holds only to about 256 tokens and degrades as text lengthens. Measured
+ * on the seeded data this recipe runs 46-85 tokens (mean 71), so it sits well inside it. The
+ * full document, with resolution prose, would land well outside it. There is no guard here:
+ * {@code EmbeddingBackfill} prints the real token count of every text it embeds, which is a
+ * better answer than a cap guessed in advance.
  */
 public final class IncidentEmbeddingText {
 
