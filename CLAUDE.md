@@ -40,7 +40,20 @@ one LOW sample.
 - Covers 11 errorTypes, 16 services, all four severities, Feb–Aug 2026.
 - Zero LLM calls; `IncidentSeederTest` runs offline.
 
-**Next:** embeddings + vector search, then the Resolver Agent.
+**Week 2, step 3 done** — embeddings + Atlas vector search.
+- Local MiniLM (384 dims), `EmbeddingBackfill` under the `embed` profile,
+  armed with `--write`. Atlas index `incident_embedding_index`, cosine, ENN.
+- `SimilarIncidentSearch.findSimilar(LogAnalysis, limit)` builds its query text
+  with `IncidentEmbeddingText` — the same recipe as the stored side.
+- Measured against the live index; full numbers in **docs/retrieval.md**.
+  Read that before questioning any retrieval decision.
+- Headline results: recall into a cluster is reliable; INC-2378 (a thread-pool
+  incident whose threads blocked in `HikariPool.getConnection`) is retrieved by
+  pool queries, which `errorType` filtering could never do; and `limit=3`
+  already returns all three contrasting pool resolutions for a real new
+  incident.
+
+**Next:** the Resolver Agent.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -67,6 +80,15 @@ one LOW sample.
   errorType is spelled `connection pool exhausted`, not `ConnectionPoolExhausted`
   — the tokeniser lowercases before splitting, so PascalCase arrives as one
   unspaced string and shatters. Don't "simplify" it back to `jsonValue()`.
+- **Nothing downstream may trust intra-cluster rank order.** Retrieval recalls
+  the right cluster reliably; the ordering inside it is worth nothing. The three
+  pool incidents sit within 0.03 of each other, and the two whose *conclusions*
+  agree (INC-2103 / INC-2464, both "don't grow the pool") are the furthest apart
+  of the three. Symptom similarity does not track conclusion similarity, and it
+  cannot — what separates the causes lives in `resolutionNotes`, which the query
+  side does not have. So: don't take "the top match" as the answer, don't weight
+  by rank, don't drop a candidate for placing third. Treat a tight cluster as an
+  unordered set and let the Resolver discriminate. Tuning will not fix this.
 - Embeddings run **locally**, in-process (LangChain4j ONNX, all-MiniLM-L6-v2,
   384 dims). Groq serves no embeddings endpoint at all — verified against their
   models page — so this was never a quota question. Local keeps tests offline
@@ -101,11 +123,13 @@ if it matters.
   stay queryable and simply rank as noise. Nothing detects it. If the model is
   ever swapped, drop the index and re-backfill all 20 documents **in the same
   change**, or add the marker at that point.
-- Week 2: `affectedService` is in the embedding text on reasoning, not evidence.
-  Measure it once retrieval works — run the pool trio (INC-2103 / INC-2331 /
-  INC-2464) with and without it and compare rankings. It should pull same-service
-  history together; the risk is that it buries exactly the cross-service matches
-  the trio exists to test. Drop it only on that measurement.
+- **Week 2: `affectedService` — measured, kept.** Ran the pool trio with and
+  without it: top-3 membership and order identical in all four queries, the one
+  difference being an exact tie breaking. It pulls same-service pairs together
+  (+0.035…+0.091) and pushes cross-service apart (−0.018…−0.031), but never
+  enough to change a ranking. Still open underneath: every same-service pair in
+  the corpus is *unrelated failures sharing a service*, so the case the field
+  exists for has no sample yet. Numbers in docs/retrieval.md.
 
 ## Prompt engineering learnings
 - Examples override rules. One worked example without timezones taught the
