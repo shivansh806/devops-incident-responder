@@ -101,6 +101,6 @@ class EmbeddingBackfillTest {
     private static Incident pending(String id) {
         return new Incident(id, ErrorType.CACHE_UNAVAILABLE, "profile-service", Severity.MEDIUM,
                 Instant.parse("2026-08-05T02:14:33Z"), List.of("redis: connection refused"), 0.9,
-                "Restarted the node", Instant.parse("2026-08-05T02:40:00Z"), null);
+                "Restarted the node", null, Instant.parse("2026-08-05T02:40:00Z"), null);
     }
 }

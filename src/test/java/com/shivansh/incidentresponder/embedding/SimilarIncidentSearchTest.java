@@ -162,7 +162,7 @@ class SimilarIncidentSearchTest {
         return new Incident(id, ErrorType.CONNECTION_POOL_EXHAUSTED, "payment-service",
                 Severity.CRITICAL, Instant.parse("2026-03-09T14:22:07Z"),
                 List.of("HikariPool-1 - Connection is not available"), 0.89,
-                "Moved the gateway call out of the transaction",
+                "Moved the gateway call out of the transaction", null,
                 Instant.parse("2026-03-09T14:58:31Z"), null);
     }
 }

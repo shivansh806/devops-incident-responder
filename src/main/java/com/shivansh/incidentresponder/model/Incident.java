@@ -38,10 +38,21 @@ import java.util.List;
  *                        {@link #analyzedAt} - it is a judgement that can be wrong.
  * @param keyEvidence     log lines quoted verbatim from the input that support the diagnosis
  * @param confidence      0.0-1.0 score for how well the evidence supports the diagnosis
- * @param resolutionNotes how the incident was actually put right. Null until someone (a
- *                        human today, the Resolver Agent later) fills it in; nothing in this
- *                        step writes it. It is here so the document covers the whole
- *                        lifecycle rather than just the diagnosis.
+ * @param resolutionNotes how the incident was actually put right, written by a human after
+ *                        the fact. Null while the incident is still open. This is the field
+ *                        the Resolver <em>reads</em> as precedent, and the only part of a
+ *                        past incident it can genuinely learn from.
+ * @param resolution      what the Resolver Agent recommended, or null when it was not run or
+ *                        its call failed. Null is an ordinary value here, not an error: a
+ *                        diagnosis without a recommendation is exactly what week 1 returned.
+ *                        <p>
+ *                        <b>Deliberately not written into {@link #resolutionNotes}</b>, and
+ *                        the pair must never be merged. Those notes are a record of what
+ *                        actually fixed an incident; this is a proposal that may be wrong.
+ *                        Collapsing the two would feed the Resolver its own guesses back as
+ *                        precedent on every future retrieval, and the history would drift
+ *                        towards whatever the model already believed. Only the human field
+ *                        is ever shown to the agent.
  * @param analyzedAt      when this analysis was run, off the server clock. Never null, and
  *                        never inferred - that is what makes it trustworthy for ordering
  *                        and retention where {@code firstOccurrence} is not.
@@ -70,20 +81,25 @@ public record Incident(
         List<String> keyEvidence,
         double confidence,
         String resolutionNotes,
+        AgentResolution resolution,
         Instant analyzedAt,
         List<Double> embedding
 ) {
 
     /**
-     * Builds an unsaved incident from a fresh analysis. The id is null on purpose: Mongo
-     * assigns it on insert, and because this is an immutable record the id arrives on the
-     * instance {@code save()} <em>returns</em>, not on the one passed in.
+     * Builds an unsaved incident from a fresh analysis and whatever the Resolver made of it.
+     * The id is null on purpose: Mongo assigns it on insert, and because this is an immutable
+     * record the id arrives on the instance {@code save()} <em>returns</em>, not on the one
+     * passed in.
      * <p>
-     * The embedding is null for the same reason {@code resolutionNotes} is: neither exists
-     * yet at the moment of diagnosis. Embedding a live incident on the write path would put
-     * model inference inside the request; it is left to the backfill for now.
+     * {@code resolutionNotes} stays null - nobody has fixed anything yet, and the Resolver's
+     * output is not a substitute for that. The embedding is null for the same reason: it does
+     * not exist at the moment of diagnosis, and embedding a live incident on the write path
+     * would put model inference inside the request. It is left to the backfill for now.
+     *
+     * @param resolution the Resolver's recommendation, or null when it did not produce one
      */
-    public static Incident from(LogAnalysis analysis, Instant analyzedAt) {
+    public static Incident from(LogAnalysis analysis, AgentResolution resolution, Instant analyzedAt) {
         return new Incident(
                 null,
                 analysis.errorType(),
@@ -93,6 +109,7 @@ public record Incident(
                 analysis.keyEvidence(),
                 analysis.confidence(),
                 null,
+                resolution,
                 analyzedAt,
                 null);
     }

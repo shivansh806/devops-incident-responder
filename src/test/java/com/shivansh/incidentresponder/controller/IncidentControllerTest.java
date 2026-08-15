@@ -1,5 +1,6 @@
 package com.shivansh.incidentresponder.controller;
 
+import com.shivansh.incidentresponder.model.AgentResolution;
 import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.Severity;
@@ -42,6 +43,11 @@ class IncidentControllerTest {
                 List.of("redis: connection refused"),
                 0.9,
                 "Restarted the redis node and warmed the cache",
+                new AgentResolution(
+                        "The redis primary was evicted and every read fell through to Postgres",
+                        List.of("Confirm the replacement node is serving reads", "Warm the hot key set"),
+                        List.of("INC-2057"),
+                        0.82),
                 Instant.parse("2026-08-12T09:00:00Z"),
                 // Non-null on purpose: a stored incident that has been through the backfill
                 // carries a vector, and this endpoint must not hand it out. A null here would
@@ -66,7 +72,19 @@ class IncidentControllerTest {
                 // Checked at both levels because the response nests, and a leak could land
                 // at either one.
                 .andExpect(jsonPath("$.embedding").doesNotExist())
-                .andExpect(jsonPath("$.analysis.embedding").doesNotExist());
+                .andExpect(jsonPath("$.analysis.embedding").doesNotExist())
+                // The Resolver's recommendation rides alongside the diagnosis, not inside
+                // it - the two agents produce separate answers and the response keeps them
+                // separate.
+                .andExpect(jsonPath("$.resolution.rootCause")
+                        .value("The redis primary was evicted and every read fell through to Postgres"))
+                .andExpect(jsonPath("$.resolution.suggestedActions[0]")
+                        .value("Confirm the replacement node is serving reads"))
+                .andExpect(jsonPath("$.resolution.similarIncidents[0]").value("INC-2057"))
+                .andExpect(jsonPath("$.resolution.confidence").value(0.82))
+                // Distinct fields carrying distinct things: the human record of what fixed
+                // it, and the machine proposal for what might. Nothing may merge them.
+                .andExpect(jsonPath("$.analysis.rootCause").doesNotExist());
     }
 
     @Test

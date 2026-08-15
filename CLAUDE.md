@@ -53,7 +53,22 @@ one LOW sample.
   already returns all three contrasting pool resolutions for a real new
   incident.
 
-**Next:** the Resolver Agent.
+**Week 2, step 4 done** — the Resolver Agent.
+- Second AI Service (`ResolverAgent`), sharing the Analyzer's `ChatModel`. Input is a
+  `LogAnalysis` plus retrieved precedent; output is `AgentResolution` (rootCause,
+  ordered suggestedActions, similarIncidents, confidence).
+- `ResolverService` owns retrieval at **limit 3** and all normalisation. Retrieval
+  failure degrades to an empty candidate set (the Resolver still runs); agent failure
+  degrades to a null resolution (the diagnosis is still stored and returned).
+- `POST /api/analyze` and `GET /api/incidents/{id}` both return `resolution`.
+- 95 offline tests green. No LLM call has been made yet.
+
+**Next:** the first real Resolver run. **Use a case where chronological order and
+similarity order disagree.** In the live corpus's production-shaped pool query the two
+coincide (0.96 / 0.95 / 0.92 top to bottom by date), so the oldest-first sort leaves the
+highest scorer first anyway and device (a) is never exercised. `ResolverPromptTextTest`
+covers the disagreeing case offline; the live run needs one too, or the anti-anchoring
+claim stays untested against a real model.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -94,6 +109,29 @@ one LOW sample.
   models page — so this was never a quota question. Local keeps tests offline
   and adds no fourth credential. It also makes retrieval quality deterministic
   and free to re-measure, unlike the Analyzer baseline.
+
+- **`Incident.resolution` and `Incident.resolutionNotes` must never merge.** The notes are
+  what a human recorded after actually fixing an incident, and they are the only thing
+  retrieval ever shows the agent. `resolution` is a machine proposal that may be wrong.
+  Writing one into the other feeds the Resolver its own guesses back as precedent on every
+  future call, and the corpus drifts towards whatever the model already believed. Nothing
+  writes `resolutionNotes` on the live path.
+- **Retrieval limit is 3, at `ResolverService.SIMILAR_INCIDENT_LIMIT`.** Measured, not
+  guessed: all three contrasting pool resolutions arrive in the first three slots. Slot 4
+  buys INC-2378, the cross-type match — real, but `findSimilar` has no relevance floor, so
+  on a novel incident slot 4 is an irrelevant precedent formatted identically to a good one.
+  No score threshold anywhere; one query over 21 documents is not a calibration. Raising it
+  is one line and a free re-measurement.
+- **The Resolver's two failures degrade differently.** Retrieval failure → resolve with no
+  precedent (the prompt has that branch). Agent failure → null resolution, incident still
+  stored. Neither loses a diagnosis the LLM was already billed for. Storage failure still
+  fails the whole call, unchanged.
+- **The prompt's worked example uses an invented failure class**, checked against all 20
+  seeded incidents. Don't swap it for a realistic one. A scheduled-job duplicate-execution
+  example was rejected because INC-2118 already resolves to making a job idempotent against
+  double-counting; health-check and DLQ examples were rejected because their disagreement is
+  *raise the limit vs don't*, which is structurally the pool trio's own argument. Any
+  replacement must clear both tests: no lexical overlap, and no capacity knob.
 
 ## Cost note
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.

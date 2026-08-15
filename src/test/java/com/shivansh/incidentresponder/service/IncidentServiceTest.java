@@ -1,5 +1,6 @@
 package com.shivansh.incidentresponder.service;
 
+import com.shivansh.incidentresponder.model.AgentResolution;
 import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.LogAnalysis;
@@ -36,6 +37,9 @@ class IncidentServiceTest {
 
     @Mock
     private AnalyzerService analyzerService;
+
+    @Mock
+    private ResolverService resolverService;
 
     @Mock
     private IncidentRepository incidentRepository;
@@ -80,8 +84,59 @@ class IncidentServiceTest {
     }
 
     @Test
+    void storesWhatTheResolverRecommendedAlongsideTheDiagnosis() {
+        AgentResolution resolution = new AgentResolution(
+                "Connections were held across a slow outbound gateway call",
+                List.of("Move the gateway call outside the transaction", "Leave maximum-pool-size alone"),
+                List.of("INC-2103", "INC-2331"),
+                0.81);
+        given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(ANALYSIS);
+        given(resolverService.resolve(ANALYSIS)).willReturn(resolution);
+        given(incidentRepository.save(any(Incident.class))).willAnswer(call -> call.getArgument(0));
+
+        incidentService.analyzeAndRecord("HikariPool-1 timed out", null);
+
+        then(incidentRepository).should().save(savedIncident.capture());
+        Incident stored = savedIncident.getValue();
+
+        assertThat(stored.resolution()).isEqualTo(resolution);
+        // The two fields must stay apart. resolutionNotes is the human record of what
+        // actually fixed an incident and is the only thing retrieval ever shows the agent;
+        // writing a generated proposal there would feed the Resolver its own output back as
+        // precedent on every future call.
+        assertThat(stored.resolutionNotes()).isNull();
+    }
+
+    @Test
+    void keepsTheDiagnosisWhenTheResolverProducesNothing() {
+        given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(ANALYSIS);
+        // Null is what ResolverService returns when the agent call failed - a rate limit, a
+        // timeout, an unusable reply. The analysis was already paid for and is still worth
+        // keeping, so the incident is stored regardless.
+        given(resolverService.resolve(ANALYSIS)).willReturn(null);
+        given(incidentRepository.save(any(Incident.class))).willAnswer(call -> call.getArgument(0));
+
+        Incident result = incidentService.analyzeAndRecord("HikariPool-1 timed out", null);
+
+        assertThat(result.resolution()).isNull();
+        assertThat(result.toAnalysis()).isEqualTo(ANALYSIS);
+    }
+
+    @Test
+    void resolvesTheDiagnosisTheAnalyzerProduced() {
+        given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(ANALYSIS);
+        given(incidentRepository.save(any(Incident.class))).willAnswer(call -> call.getArgument(0));
+
+        incidentService.analyzeAndRecord("HikariPool-1 timed out", null);
+
+        // The order is the architecture: the Resolver's input is the Analyzer's output, and
+        // it is that value it must be handed - not the raw logs, and not a rebuilt copy.
+        then(resolverService).should().resolve(ANALYSIS);
+    }
+
+    @Test
     void readsAStoredIncidentBack() {
-        Incident stored = withId(Incident.from(ANALYSIS, Instant.parse("2026-08-12T09:00:00Z")), "abc123");
+        Incident stored = withId(Incident.from(ANALYSIS, null, Instant.parse("2026-08-12T09:00:00Z")), "abc123");
         given(incidentRepository.findById("abc123")).willReturn(Optional.of(stored));
 
         assertThat(incidentService.findById("abc123")).isEqualTo(stored);
@@ -100,6 +155,7 @@ class IncidentServiceTest {
     private static Incident withId(Incident incident, String id) {
         return new Incident(id, incident.errorType(), incident.affectedService(), incident.severity(),
                 incident.firstOccurrence(), incident.keyEvidence(), incident.confidence(),
-                incident.resolutionNotes(), incident.analyzedAt(), incident.embedding());
+                incident.resolutionNotes(), incident.resolution(), incident.analyzedAt(),
+                incident.embedding());
     }
 }
