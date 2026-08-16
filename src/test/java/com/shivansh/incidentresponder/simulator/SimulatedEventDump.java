@@ -56,8 +56,11 @@ class SimulatedEventDump {
                     scenario.declaresService() ? "sent" : "omitted",
                     String.join(",", unmodelled));
 
+            // Trailing newline matters: these files are meant to be piped into
+            // kafka-console-producer.sh, which splits messages on newlines. Without it,
+            // concatenating two files produces one message rather than two.
             Files.writeString(OUT.resolve(scenario.name().toLowerCase() + ".json"),
-                    event.json(), StandardCharsets.UTF_8);
+                    event.json() + System.lineSeparator(), StandardCharsets.UTF_8);
             sequence++;
         }
         System.out.println("\n  written to " + OUT.toAbsolutePath());
