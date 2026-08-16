@@ -40,35 +40,20 @@ one LOW sample.
 - Covers 11 errorTypes, 16 services, all four severities, Feb–Aug 2026.
 - Zero LLM calls; `IncidentSeederTest` runs offline.
 
-**Week 2, step 3 done** — embeddings + Atlas vector search.
-- Local MiniLM (384 dims), `EmbeddingBackfill` under the `embed` profile,
-  armed with `--write`. Atlas index `incident_embedding_index`, cosine, ENN.
-- `SimilarIncidentSearch.findSimilar(LogAnalysis, limit)` builds its query text
-  with `IncidentEmbeddingText` — the same recipe as the stored side.
-- Measured against the live index; full numbers in **docs/retrieval.md**.
-  Read that before questioning any retrieval decision.
-- Headline results: recall into a cluster is reliable; INC-2378 (a thread-pool
-  incident whose threads blocked in `HikariPool.getConnection`) is retrieved by
-  pool queries, which `errorType` filtering could never do; and `limit=3`
-  already returns all three contrasting pool resolutions for a real new
-  incident.
+**Week 2 COMPLETE** — MongoDB, seeded incidents, vector retrieval, Resolver.
+- Persistence: Incident (storage) separate from LogAnalysis (API message)
+- 20 seeded incidents with deliberate contrast pairs
+- Local MiniLM embeddings + Atlas vector search. Recall into the right
+  cluster is reliable; intra-cluster rank is NOT — see docs/retrieval.md
+- Resolver Agent with decidingEvidence as the first output field.
+  Measured pre- and post-fix — see docs/resolver.md before changing
+  anything about the Resolver prompt or output shape
 
-**Week 2, step 4 done** — the Resolver Agent.
-- Second AI Service (`ResolverAgent`), sharing the Analyzer's `ChatModel`. Input is a
-  `LogAnalysis` plus retrieved precedent; output is `AgentResolution` (rootCause,
-  ordered suggestedActions, similarIncidents, confidence).
-- `ResolverService` owns retrieval at **limit 3** and all normalisation. Retrieval
-  failure degrades to an empty candidate set (the Resolver still runs); agent failure
-  degrades to a null resolution (the diagnosis is still stored and returned).
-- `POST /api/analyze` and `GET /api/incidents/{id}` both return `resolution`.
-- 95 offline tests green. No LLM call has been made yet.
+Residual: run 8's failure was a correctly stated discriminator attached to
+the wrong precedent. Measure future interventions against misattribution,
+not blending.
 
-**Next:** the first real Resolver run. **Use a case where chronological order and
-similarity order disagree.** In the live corpus's production-shaped pool query the two
-coincide (0.96 / 0.95 / 0.92 top to bottom by date), so the oldest-first sort leaves the
-highest scorer first anyway and device (a) is never exercised. `ResolverPromptTextTest`
-covers the disagreeing case offline; the live run needs one too, or the anti-anchoring
-claim stays untested against a real model.
+**Next:** Week 3 — Kafka ingestion, Redis caching, WebSocket.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
