@@ -44,6 +44,7 @@ class IncidentControllerTest {
                 0.9,
                 "Restarted the redis node and warmed the cache",
                 new AgentResolution(
+                        "Cache node loss is EXAMPLE precedent INC-2057's case, not a client-side timeout",
                         "The redis primary was evicted and every read fell through to Postgres",
                         List.of("Confirm the replacement node is serving reads", "Warm the hot key set"),
                         List.of("INC-2057"),

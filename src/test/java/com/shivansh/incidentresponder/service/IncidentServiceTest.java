@@ -86,6 +86,7 @@ class IncidentServiceTest {
     @Test
     void storesWhatTheResolverRecommendedAlongsideTheDiagnosis() {
         AgentResolution resolution = new AgentResolution(
+                "Acquisition time rose while execution held flat, which is INC-2331's case",
                 "Connections were held across a slow outbound gateway call",
                 List.of("Move the gateway call outside the transaction", "Leave maximum-pool-size alone"),
                 List.of("INC-2103", "INC-2331"),

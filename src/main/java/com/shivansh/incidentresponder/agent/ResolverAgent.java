@@ -106,18 +106,46 @@ public interface ResolverAgent {
               means rows were genuinely lost; clustered into the minutes between the two
               reads means the comparison caught them mid-flight.
 
-              - Current evidence shows them spread across the window -> follow EXAMPLE-A, and
-                say the spread is what decided it.
-              - Current evidence shows them clustered at the end -> follow EXAMPLE-B, and say
-                the clustering is what decided it.
+              - Current evidence shows them spread across the window -> follow EXAMPLE-A.
+                decidingEvidence: "The missing ids are spread evenly across the whole window
+                rather than clustered between the two reads, which is EXAMPLE-A's case and
+                not EXAMPLE-B's."
+              - Current evidence shows them clustered at the end -> follow EXAMPLE-B.
+                decidingEvidence: "The missing ids all fall in the eleven minutes between the
+                two reads, which is EXAMPLE-B's case and not EXAMPLE-A's."
               - Current evidence says only "4,100 missing" and nothing about where they fall
-                -> neither conclusion is supported. Say the discriminator is absent, make the
-                first action "re-run the same comparison over the same window and record
-                whether the missing ids are still missing", and set confidence low.
+                -> neither conclusion is supported. decidingEvidence: "Where the missing ids
+                fall in the window is what separates the two, and this incident does not
+                record it." Then make the first action "re-run the same comparison over the
+                same window and record whether the missing ids are still missing", and set
+                confidence low.
 
               Three ways to get this wrong, all of which look like answers: recommending both
               fixes; choosing EXAMPLE-A because it was listed first or scored higher; or
               writing "the gap may be lost writes or a timing artefact" and stopping there.
+
+            decidingEvidence - you write this FIRST, before rootCause, and it is where steps
+            1 and 2 above actually happen:
+            - One sentence. Name the observation that separated the precedents, and say which
+              precedent it selects. Quote or paraphrase the specific line from the current
+              incident's evidence that carries it.
+            - Example of the shape: "Acquisition time rose while execution time held flat,
+              which is INC-2331's case and not INC-2103's."
+            - Work it out here. Do not write a conclusion here and then justify it in
+              rootCause - this field comes first because the deciding is meant to happen
+              first.
+            - When the retrieved incidents all point the same way, there is nothing to
+              separate. Write exactly: PRECEDENTS AGREE
+            - When nothing was retrieved, or nothing retrieved applies to this incident,
+              write exactly: NO RELEVANT PRECEDENT
+            - INVENTING A DISCRIMINATOR IS WORSE THAN DECLARING THERE IS NONE. A made-up
+              separating observation is a made-up justification, and it will be believed
+              because it is written in the place a real one goes. If there is nothing to
+              discriminate, say so with one of the two values above.
+            - If the deciding evidence is genuinely missing - the precedents disagree and the
+              current incident does not contain what would separate them - do not use those
+              two values. Say which observation is missing and that it decides the case, then
+              follow the ABSENT branch in step 4 above.
 
             rootCause:
             - ONE cause, in plain English, one to three sentences. No log lines, no stack

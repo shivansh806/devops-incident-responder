@@ -93,6 +93,7 @@ class ResolverServiceTest {
     void normalisesAWellFormedReply() {
         given(similarIncidentSearch.findSimilar(any(), anyInt())).willReturn(List.of(match("INC-2103")));
         given(resolverAgent.resolve(anyString(), anyString())).willReturn(new ResolverOutput(
+                "  Acquisition time rose while execution held flat  ",
                 "  Connections were held across a slow gateway call  ",
                 List.of("  Move the call out of the transaction  ", "", "   "),
                 List.of("INC-2103"),
@@ -100,6 +101,7 @@ class ResolverServiceTest {
 
         AgentResolution resolution = resolverService.resolve(ANALYSIS);
 
+        assertThat(resolution.decidingEvidence()).isEqualTo("Acquisition time rose while execution held flat");
         assertThat(resolution.rootCause()).isEqualTo("Connections were held across a slow gateway call");
         assertThat(resolution.suggestedActions()).containsExactly("Move the call out of the transaction");
         assertThat(resolution.similarIncidents()).containsExactly("INC-2103");
@@ -115,6 +117,7 @@ class ResolverServiceTest {
     void dropsCitedIncidentsThatWereNeverSupplied() {
         given(similarIncidentSearch.findSimilar(any(), anyInt())).willReturn(List.of(match("INC-2103")));
         given(resolverAgent.resolve(anyString(), anyString())).willReturn(new ResolverOutput(
+                "Acquisition time rose while execution held flat",
                 "Connections were held across a slow gateway call",
                 List.of("Move the call out of the transaction"),
                 // EXAMPLE-A is from the prompt's worked example and INC-9999 is invented.
@@ -131,8 +134,8 @@ class ResolverServiceTest {
     void clampsConfidenceIntoRangeAndSurvivesItBeingOmitted() {
         given(similarIncidentSearch.findSimilar(any(), anyInt())).willReturn(List.of());
         given(resolverAgent.resolve(anyString(), anyString()))
-                .willReturn(new ResolverOutput("a cause", List.of("do the thing"), null, 1.4))
-                .willReturn(new ResolverOutput("a cause", null, null, null));
+                .willReturn(new ResolverOutput("what decided it", "a cause", List.of("do the thing"), null, 1.4))
+                .willReturn(new ResolverOutput(null, "a cause", null, null, null));
 
         assertThat(resolverService.resolve(ANALYSIS).confidence()).isEqualTo(1.0);
 
@@ -140,6 +143,24 @@ class ResolverServiceTest {
         assertThat(second.confidence()).isEqualTo(0.0);
         assertThat(second.suggestedActions()).isEmpty();
         assertThat(second.similarIncidents()).isEmpty();
+    }
+
+    /**
+     * An empty decidingEvidence means the field declared first did not get written, which is
+     * the fix's mechanism failing on that call. It is worth a defined value and a log line,
+     * but not worth discarding an otherwise sound recommendation - unlike rootCause below.
+     */
+    @Test
+    void substitutesADefinedValueWhenDecidingEvidenceIsMissing() {
+        given(similarIncidentSearch.findSimilar(any(), anyInt())).willReturn(List.of());
+        given(resolverAgent.resolve(anyString(), anyString()))
+                .willReturn(new ResolverOutput("   ", "a cause", List.of("do the thing"), List.of(), 0.7));
+
+        AgentResolution resolution = resolverService.resolve(ANALYSIS);
+
+        assertThat(resolution).isNotNull();
+        assertThat(resolution.decidingEvidence()).isEqualTo(AgentResolution.NOT_STATED);
+        assertThat(resolution.rootCause()).isEqualTo("a cause");
     }
 
     /**
@@ -151,7 +172,7 @@ class ResolverServiceTest {
     void discardsAResolutionWithNoRootCause() {
         given(similarIncidentSearch.findSimilar(any(), anyInt())).willReturn(List.of());
         given(resolverAgent.resolve(anyString(), anyString()))
-                .willReturn(new ResolverOutput("   ", List.of("restart it"), List.of(), 0.9));
+                .willReturn(new ResolverOutput("what decided it", "   ", List.of("restart it"), List.of(), 0.9));
 
         assertThat(resolverService.resolve(ANALYSIS)).isNull();
     }
@@ -196,7 +217,7 @@ class ResolverServiceTest {
     }
 
     private static ResolverOutput wellFormed() {
-        return new ResolverOutput("a cause", List.of("do the thing"), List.of(), 0.7);
+        return new ResolverOutput("what decided it", "a cause", List.of("do the thing"), List.of(), 0.7);
     }
 
     private static SimilarIncident match(String id) {

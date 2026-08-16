@@ -154,6 +154,7 @@ class ResolverBaselineTest {
             return;
         }
         System.out.printf("  confidence       : %.2f%n", resolution.confidence());
+        System.out.printf("  decidingEvidence : %s%n", resolution.decidingEvidence());
         System.out.printf("  similarIncidents : %s%s%n", resolution.similarIncidents(),
                 resolution.similarIncidents().size() == SCORES.size() ? "   <-- cites ALL THREE" : "");
         System.out.printf("  rootCause        : %s%n", resolution.rootCause());
@@ -188,6 +189,12 @@ class ResolverBaselineTest {
         long citedExpectedAlone = usable.stream()
                 .filter(r -> r.similarIncidents().equals(List.of(EXPECTED)))
                 .count();
+        // An unstated discriminator means the field declared first did not get written, which
+        // is the mechanism failing on that call. Counted, not assumed away.
+        long notStated = usable.stream()
+                .filter(r -> AgentResolution.NOT_STATED.equals(r.decidingEvidence()))
+                .count();
+        System.out.printf("  decidingEvidence unstated : %d of %d%n", notStated, usable.size());
         System.out.printf("  cited all three     : %d of %d%n", citedAll, usable.size());
         System.out.printf("  cited %s alone : %d of %d%n", EXPECTED, citedExpectedAlone, usable.size());
 

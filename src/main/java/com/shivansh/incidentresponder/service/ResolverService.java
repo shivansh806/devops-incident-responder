@@ -129,6 +129,7 @@ public class ResolverService {
         }
 
         AgentResolution resolution = new AgentResolution(
+                decidingEvidence(output.decidingEvidence()),
                 rootCause,
                 cleanActions(output.suggestedActions()),
                 citedIds(output.similarIncidents(), suppliedIds),
@@ -146,6 +147,23 @@ public class ResolverService {
         log.info("Resolution: confidence={} actions={} drewOn={}",
                 resolution.confidence(), resolution.suggestedActions().size(), resolution.similarIncidents());
         return resolution;
+    }
+
+    /**
+     * An empty {@code decidingEvidence} does not discard the resolution, unlike an empty
+     * {@code rootCause}. The field is an audit line rather than the answer, and losing a sound
+     * recommendation because its justification is missing is the wrong trade.
+     * <p>
+     * It is logged at WARN because it means something specific: the field is declared first
+     * precisely so the model has to write it before committing to a cause, so an empty one is
+     * the mechanism not firing on that call. Worth being able to count.
+     */
+    private static String decidingEvidence(String stated) {
+        if (stated == null || stated.isBlank()) {
+            log.warn("Resolver omitted decidingEvidence - it committed to a cause without stating what decided it");
+            return AgentResolution.NOT_STATED;
+        }
+        return stated.strip();
     }
 
     private static List<String> cleanActions(List<String> actions) {
