@@ -53,7 +53,21 @@ Residual: run 8's failure was a correctly stated discriminator attached to
 the wrong precedent. Measure future interventions against misattribution,
 not blending.
 
-**Next:** Week 3 — Kafka ingestion, Redis caching, WebSocket.
+**Week 3, step 1 done** — local infrastructure. Nothing wired to the app yet.
+- `docker-compose.yml` at the repo root: Kafka 4.0 in KRaft mode (no ZooKeeper)
+  and Redis 7.4. One command — `docker compose up -d --wait`. The `--wait` is
+  load-bearing: plain `up -d` returns about ten seconds before Kafka can serve
+  a client, and the app then fails to connect in a way that reads as a config
+  error.
+- Kafka's host listener is on 9092 and Redis on 6379 **because those are Spring
+  Boot's defaults** — step 2 needs no connection config at all. Both published
+  on `127.0.0.1` only, not every interface.
+- Mongo is deliberately not in compose. It stays on Atlas; the vector index has
+  no plain community-Mongo equivalent.
+- Verified from the host, not via `docker exec` — a container-side check is
+  exactly what hides an advertised-address bug. Details in docs/infra.md.
+
+**Next:** Week 3, step 2 — Kafka ingestion, then Redis caching, then WebSocket.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -95,6 +109,16 @@ not blending.
   and adds no fourth credential. It also makes retrieval quality deterministic
   and free to re-measure, unlike the Analyzer baseline.
 
+- **A Kafka listener's published port and advertised port must be the same number.**
+  The app runs on the host, in IntelliJ, not in a container. A client uses
+  `bootstrap.servers` once to fetch metadata and then *reconnects to whatever
+  address the broker advertised*, so the broker decides where the client goes
+  next. Publishing `9094:9092` while advertising `localhost:9092` means the app
+  reads metadata from this broker and then produces into whatever else owns 9092.
+  The failure is quiet in the worst way: the first connection succeeds and the
+  produce hangs, which reads as a broker fault rather than a naming one. If the
+  host port ever changes, change `KAFKA_LISTENERS`, `KAFKA_ADVERTISED_LISTENERS`
+  and the `ports:` entry together. Read docs/infra.md before touching that block.
 - **`Incident.resolution` and `Incident.resolutionNotes` must never merge.** The notes are
   what a human recorded after actually fixing an incident, and they are the only thing
   retrieval ever shows the agent. `resolution` is a machine proposal that may be wrong.
@@ -138,6 +162,14 @@ if it matters.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
+- **Week 3: a persistent Redis cache can serve a stale response after a prompt
+  edit.** AOF is on and the volume survives `docker compose down`, because the
+  100k/day Groq budget is the scarcer resource — see the cost note. The risk it
+  buys is real though: a stale hit during a baseline run corrupts exactly the
+  run-to-run comparability docs/baseline.md rests on. The guard belongs in the
+  cache key, which must include something that changes when the prompt or the
+  model changes. That is step 2's job, not compose's. Until then
+  `docker compose down -v` is the clean slate.
 - **Week 2: no embedding-model marker on Incident**, by the same reasoning that
   kept a `source` field off it. The trap this leaves, on record before it bites:
   a *dimension* change (384 → 1536) fails loudly, because the Atlas index has

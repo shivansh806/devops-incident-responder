@@ -1,0 +1,92 @@
+# Week 3 event pipeline infrastructure: Kafka (KRaft, no ZooKeeper) and Redis.
+#
+# The Spring Boot app runs on the HOST, in IntelliJ - not in a container. That single
+# fact drives every port and listener choice below. See docs/infra.md.
+#
+#   docker compose up -d --wait     bring it up and block until both are healthy
+#   docker compose down             stop, keep the data
+#   docker compose down -v          stop and wipe the volumes
+
+services:
+  kafka:
+    image: apache/kafka:4.0.0
+    container_name: incident-kafka
+    ports:
+      # Bound to 127.0.0.1, not 0.0.0.0. "9092:9092" would publish an unauthenticated
+      # broker on every interface, including whatever WiFi this laptop is on.
+      - "127.0.0.1:9092:9092"
+    environment:
+      # --- KRaft: this node is both broker and controller, so no ZooKeeper ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Pinned, not generated. It is written into meta.properties on the data volume;
+      # a fresh id on the next 'up' would mismatch the volume and refuse to start.
+      CLUSTER_ID: 8dwXVyjaS2mwTqSVRzVu9Q
+
+      # --- Listeners: what the broker BINDS ---
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # --- Advertised listeners: what the broker TELLS CLIENTS TO RECONNECT TO ---
+      # This is the line that decides whether a host-run app works. A client uses
+      # bootstrap-servers once, to fetch metadata, then reconnects to whatever address
+      # comes back here. Advertise only "kafka:29092" and the host app connects, then
+      # hangs forever trying to resolve a Docker-internal name.
+      #   PLAINTEXT_HOST -> localhost:9092  the app in IntelliJ
+      #   PLAINTEXT      -> kafka:29092     containers on this network (week 4)
+      # CONTROLLER is deliberately absent: it speaks Raft, not the client protocol.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+
+      # --- Single-broker sizing. These default to 3 and would leave the internal
+      # consumer-offsets topic permanently under-replicated on a one-node cluster. ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 1
+      # Default is 3000ms, which makes every consumer restart feel broken in dev.
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Explicit rather than relying on the default: step 2 can produce to a topic
+      # before anything creates it. Revisit if topics need real partition counts.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      # The image defaults to /tmp/kraft-combined-logs, which is inside the container
+      # filesystem - every recreate would lose topics, offsets and the cluster id.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      # Exec form, no shell: asks the broker over its own client protocol, so a
+      # "healthy" here means a client can actually get metadata back.
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: incident-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    # Redis has no advertised-address problem: a client talks to the socket it opened
+    # and is never redirected. (Redis Cluster's MOVED is the same class of problem -
+    # part of why single-node is the right call for a cache.)
+    #
+    # AOF on, because the thing being cached is Groq responses against a 100k
+    # tokens/day budget. Losing the cache on restart costs real quota.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  kafka-data:
+  redis-data:
