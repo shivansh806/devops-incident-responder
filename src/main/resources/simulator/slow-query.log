@@ -1,0 +1,13 @@
+{t+0} INFO  [{svc}] [http-nio-8080-exec-2] c.a.app.web.SearchController - GET /catalog/search?q=wireless&facets=brand,price
+{t+8} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - http_server_requests p50={#40-70}ms p99={#1900-2600}ms (7-day p99 {#180-240}ms)
+{t+14} WARN  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - Slow query {#1400-2900}ms: SELECT v.* FROM variants v WHERE v.attributes @> $1 ORDER BY v.rank LIMIT 60
+{t+19} INFO  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - EXPLAIN: Seq Scan on variants (cost=0.00..{#48000-92000}.00 rows={#900-2200} width=412)
+{t+23} INFO  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - Planner has not used index idx_variants_attributes_gin since {t-604800}
+{t+27} INFO  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - variants row count {#4100000-5200000}, up from {#900000-1400000} at last ANALYZE
+{t+31} INFO  [{svc}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP, db=UP
+{t+36} WARN  [{svc}] [http-nio-8080-exec-9] c.a.app.web.SearchController - Request REQ-{id} exceeded caller timeout budget of 2000ms, caller retried
+{t+40} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - http_server_requests_errors_total=0 error_rate=0.00%
+{t+45} INFO  [{svc}] [retry-monitor] c.a.app.ops.RetryWatch - {=retries:18-31} caller retries in the last 5 minutes, {=retries:18-31} succeeded on retry, 0 gave up
+{t+49} INFO  [{svc}] [traffic-monitor] c.a.app.metrics.Throughput - Requests/sec {#90-140}, unchanged week over week
+{t+54} WARN  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - {#2-4}.{#0-9}% of catalog searches now exceed the caller timeout, up from 0.0% seven days ago
+{t+58} INFO  [{svc}] [ops] c.a.app.ops.Pager - No page raised: error rate 0.00%, all requests eventually served

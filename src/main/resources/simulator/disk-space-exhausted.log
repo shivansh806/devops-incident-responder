@@ -1,0 +1,14 @@
+{t+0|+05:30} INFO  [{svc}] [upload-worker-2] c.a.app.media.UploadHandler - Accepted upload UP-{id}, {#12-90}MB, content-type=video/mp4
+{t+7|+05:30} WARN  [{svc}] [disk-monitor] c.a.app.ops.DiskMonitor - Filesystem /var/lib/media at {#91-96}% capacity ({#38-46}GB free of 1.0TB)
+{t+15|+05:30} INFO  [{svc}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: ping=UP, db=UP, disk=WARN
+{t+22|+05:30} WARN  [{svc}] [disk-monitor] c.a.app.ops.DiskMonitor - Filesystem /var/lib/media at 99% capacity ({#1-4}GB free of 1.0TB)
+{t+29|+05:30} ERROR [{svc}] [upload-worker-2] c.a.app.media.UploadHandler - Failed to persist upload UP-{id}
+java.io.IOException: No space left on device
+	at java.base/java.io.FileOutputStream.writeBytes(Native Method)
+	at com.acme.app.media.TranscodeSink.flush(TranscodeSink.java:132)
+	at com.acme.app.media.UploadHandler.persist(UploadHandler.java:97)
+{t+33|+05:30} ERROR [{svc}] [upload-worker-4] c.a.app.media.UploadHandler - Discarding partial upload UP-{id}, {#40-120}MB written, unrecoverable
+{t+37|+05:30} ERROR [{svc}] [upload-worker-1] c.a.app.media.UploadHandler - Discarding partial upload UP-{id}, {#40-120}MB written, unrecoverable
+{t+44|+05:30} WARN  [{svc}] [retention-job] c.a.app.ops.RetentionJob - Retention sweep last completed {#9-21} days ago, scheduled interval is 1 day
+{t+49|+05:30} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - disk_free_bytes path=/var/lib/media value=1.1e9 uploads_discarded_total={=discarded:18-60}
+{t+56|+05:30} ERROR [{svc}] [upload-worker-3] c.a.app.media.UploadHandler - {=discarded:18-60} uploads discarded in the last 10 minutes, no bytes recoverable

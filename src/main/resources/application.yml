@@ -14,6 +14,52 @@ spring:
       # over any database named in the URI.
       database: ${MONGODB_DATABASE:incident_responder}
 
+  kafka:
+    # localhost:9092 is also Spring's own default. It is spelled out because docker-compose.yml
+    # chose that port deliberately to make it so - see docs/infra.md - and an env override is
+    # what week 4 will need when the app moves into a container.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    consumer:
+      group-id: incident-responder
+      # String in, parsed by IncidentEventParser in the listener. Not Spring Kafka's
+      # JsonDeserializer: a deserialiser failure happens before the listener runs, which needs
+      # an ErrorHandlingDeserializer wrapper to avoid an infinite poison-pill loop. Parsing in
+      # the listener makes a malformed message an ordinary exception the error handler already
+      # classifies, and it keeps the choice of ObjectMapper explicit rather than inherited.
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+      # ONE. Not a tuning preference - a correctness requirement. The default is 500, and a
+      # poll returning 500 events would hand the listener ~17 hours of LLM calls to run inside
+      # a 10 minute poll interval. The broker would evict this consumer mid-batch and redeliver
+      # every event in it, including the ones already billed for. Throughput is irrelevant
+      # here: Groq's rate limit caps this pipeline far below one event per second anyway.
+      max-poll-records: 1
+
+      # auto-offset-reset is deliberately left at Kafka's default of "latest", against the
+      # advice of every tutorial. It only applies when a group has no committed offset, and
+      # "earliest" there means replaying the entire topic the first time the app starts - at
+      # ~6,000 tokens an event, potentially the whole day's budget before the first log line.
+      # An existing group resumes from its committed offsets either way, which is the case
+      # that actually matters.
+
+      properties:
+        # Raised from the 5 minute default. The budget it has to cover: one event is two LLM
+        # calls at a 60s timeout each (~125s), and a retry adds a 60s backoff plus a second
+        # attempt - 310s worst case. Five minutes would lose that race; ten has margin.
+        max.poll.interval.ms: 600000
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+    listener:
+      # Commit after each record rather than after each poll batch. With max-poll-records at 1
+      # these are the same thing today; stating it means the guarantee does not quietly change
+      # if that number is ever raised.
+      ack-mode: RECORD
+
 server:
   port: 8080
 
@@ -31,3 +77,22 @@ langchain4j:
       timeout: 60s
       log-requests: false
       log-responses: false
+
+incident:
+  kafka:
+    topic: incident-events
+    # A quota switch, not a feature flag. False leaves the listener container stopped, so the
+    # simulator can fill the topic for free and the events can be inspected before any Groq
+    # call is paid for. Offsets are untouched - the group is the same, so enabling it later
+    # resumes rather than replays.
+    consumer-enabled: true
+
+  simulator:
+    # Three, not eight, because each event costs ~6,000 Groq tokens against 100,000 per day.
+    # A full eight-scenario run is about half the daily budget - fine when it is the run you
+    # are recording, wasteful as a default. See IncidentSimulator.
+    count: 3
+    # Paced against the 12,000 tokens-per-minute ceiling, which is a separate limit from the
+    # daily one. Two events inside a minute is ~12,000 tokens and lands on a 429 regardless of
+    # how much daily budget is left.
+    interval: 40s

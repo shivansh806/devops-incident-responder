@@ -1,0 +1,13 @@
+{t+0} INFO  [{svc}] [http-nio-8080-exec-4] c.a.app.web.ProfileController - GET /profiles/{#100000-999999}
+{t+6} INFO  [{svc}] [cache-metrics] c.a.app.cache.CacheMetrics - Hit rate {#94-98}.{#0-9}%, entries {#180000-260000}, evictions/min {#10-60}
+{t+13} ERROR [{svc}] [lettuce-nioEventLoop-4] i.l.core.protocol.ConnectionWatchdog - Connection to redis-cache:6379 lost, reconnect attempt 1
+{t+16} WARN  [{svc}] [lettuce-nioEventLoop-4] i.l.core.protocol.ConnectionWatchdog - Reconnect attempt 2 failed: Connection refused
+{t+18} WARN  [{svc}] [cache-metrics] c.a.app.cache.CacheMetrics - Hit rate {#0-4}.{#0-9}%, entries 0, serving from origin
+{t+21} INFO  [{svc}] [http-nio-8080-exec-4] c.a.app.cache.CacheAside - Cache unavailable, falling through to profile_store for GET /profiles/{#100000-999999}
+{t+24} INFO  [{svc}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP, db=UP, redis=DOWN
+{t+29} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - http_server_requests p99={#210-340}ms (SLO 800ms), error_rate=0.00%
+{t+34} INFO  [{svc}] [lettuce-nioEventLoop-4] i.l.core.protocol.ConnectionWatchdog - Reconnected to redis-cache:6379 after {#18-40}s
+{t+38} INFO  [{svc}] [cache-metrics] c.a.app.cache.CacheMetrics - Warming: hit rate {#40-60}.{#0-9}%, entries {#40000-90000}
+{t+44} INFO  [{svc}] [cache-metrics] c.a.app.cache.CacheMetrics - Hit rate {#92-95}.{#0-9}%, entries {#170000-230000}, recovered
+{t+48} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - Requests served {#9000-14000}, failed 0, p99 max during incident {#340-480}ms
+{t+52} INFO  [{svc}] [ops] c.a.app.ops.Pager - No page raised: zero request failures, p99 stayed within SLO throughout

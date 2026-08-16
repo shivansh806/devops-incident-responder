@@ -1,0 +1,31 @@
+{t+0} INFO  [{svc}] [pricing-worker-3] c.a.app.pricing.RepriceJob - Reprice batch RB-{=batch:100-999} started, {#800-2400} SKUs
+{t+11} INFO  [{svc}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP, db=UP
+{t+26} WARN  [{svc}] [pricing-worker-1] c.a.app.pricing.RepriceJob - Batch RB-{=batch:100-999} has made no progress for {#20-40}s
+{t+38} WARN  [{svc}] [thread-monitor] c.a.app.ops.ThreadWatch - {#4-9} threads in BLOCKED state, up from 0 ten minutes ago
+{t+44} ERROR [{svc}] [thread-monitor] c.a.app.ops.ThreadWatch - Deadlock detected by ThreadMXBean.findDeadlockedThreads()
+Found one Java-level deadlock:
+=============================
+"pricing-worker-1":
+  waiting to lock monitor 0x00007f9c2c0a1b30 (object 0x00000000e1a2b3c0, a com.acme.app.pricing.PriceBook),
+  which is held by "pricing-worker-3"
+"pricing-worker-3":
+  waiting to lock monitor 0x00007f9c2c0a4e80 (object 0x00000000e1a2c9f8, a com.acme.app.pricing.CurrencyTable),
+  which is held by "pricing-worker-1"
+
+Java stack information for the threads listed above:
+===================================================
+"pricing-worker-1":
+	at com.acme.app.pricing.PriceBook.applyMargin(PriceBook.java:210)
+	- waiting to lock <0x00000000e1a2b3c0> (a com.acme.app.pricing.PriceBook)
+	at com.acme.app.pricing.CurrencyTable.convert(CurrencyTable.java:88)
+	- locked <0x00000000e1a2c9f8> (a com.acme.app.pricing.CurrencyTable)
+"pricing-worker-3":
+	at com.acme.app.pricing.CurrencyTable.convert(CurrencyTable.java:84)
+	- waiting to lock <0x00000000e1a2c9f8> (a com.acme.app.pricing.CurrencyTable)
+	at com.acme.app.pricing.PriceBook.applyMargin(PriceBook.java:204)
+	- locked <0x00000000e1a2b3c0> (a com.acme.app.pricing.PriceBook)
+
+Found 1 deadlock.
+{t+49} ERROR [{svc}] [http-nio-8080-exec-6] c.a.app.web.PriceController - Request timed out after 30000ms, {#12-40} requests queued
+{t+53} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - jvm_threads_states_threads state=blocked value={#4-9} tomcat_threads_busy={#180-200}
+{t+58} ERROR [{svc}] [ops] c.a.app.ops.Pager - Pricing unavailable, {#12-40} callers affected, restart required to clear

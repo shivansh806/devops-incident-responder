@@ -1,0 +1,17 @@
+{t+0} INFO  [{caller}] [http-nio-8080-exec-1] c.a.app.web.OrderController - POST /orders/{#10000-99999}/confirm
+{t+2} INFO  [{caller}] [http-nio-8080-exec-1] c.a.app.client.InventoryClient - GET http://{svc}/api/v2/stock?sku=SKU-{#1000-9999} (timeout 3000ms)
+{t+6} WARN  [{caller}] [http-nio-8080-exec-1] c.a.app.client.InventoryClient - {svc} responded 504 Gateway Timeout after 3001ms
+{t+7} INFO  [{caller}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP, redis=UP
+{t+11} WARN  [{caller}] [http-nio-8080-exec-5] c.a.app.client.InventoryClient - {svc} responded 504 Gateway Timeout after 3002ms
+{t+14} INFO  [{caller}] [resilience4j] i.g.r.c.CircuitBreaker - CircuitBreaker {svc} recorded failure rate {#62-88}% over 20 calls
+{t+16} WARN  [{caller}] [resilience4j] i.g.r.c.CircuitBreaker - CircuitBreaker {svc} state CLOSED -> OPEN
+{t+19} ERROR [{caller}] [http-nio-8080-exec-1] c.a.app.service.OrderService - Cannot confirm order, stock check unavailable
+feign.RetryableException: Read timed out executing GET http://{svc}/api/v2/stock
+	at feign.FeignException.errorExecuting(FeignException.java:268)
+	at com.acme.app.client.InventoryClient.checkStock(InventoryClient.java:61)
+Caused by: java.net.SocketTimeoutException: Read timed out
+	... 22 common frames omitted
+{t+23} INFO  [{caller}] [metrics-publisher] i.m.core.instrument.MeterRegistry - http_client_requests_seconds_max clientName={svc} value=3.001 outcome=SERVER_ERROR
+{t+27} INFO  [{caller}] [metrics-publisher] i.m.core.instrument.MeterRegistry - {caller} own p99 {#40-70}ms, cpu {#12-25}%, heap {#30-45}% - no local saturation
+{t+31} INFO  [{caller}] [ops] c.a.app.ops.DependencyBoard - Dependencies: {svc}=DEGRADED, payment-gateway=UP, catalog-service=UP
+{t+38} ERROR [{caller}] [http-nio-8080-exec-8] c.a.app.web.OrderController - Returned 503 to {#40-90} clients in the last minute

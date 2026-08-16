@@ -1,0 +1,20 @@
+{t+0} INFO  [{svc}] [http-nio-8080-exec-3] c.a.app.web.CheckoutController - Processing order ORD-{=order:100000-999999} for customer CUS-{#10000-99999}
+{t+4} INFO  [{svc}] [pool-metrics-1] c.z.hikari.HikariDataSource - Pool stats (main-pool): total=40, active=31, idle=9, waiting=0
+{t+31} WARN  [{svc}] [http-nio-8080-exec-7] c.z.hikari.pool.HikariPool - main-pool - Connection is not available, request timed out after 30001ms (total=40, active=40, idle=0, waiting=12)
+{t+34} INFO  [{svc}] [pool-metrics-1] c.z.hikari.HikariDataSource - Pool stats (main-pool): total=40, active=40, idle=0, waiting=12
+{t+36} INFO  [{svc}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP, db=DEGRADED
+{t+41} ERROR [{svc}] [http-nio-8080-exec-7] c.a.app.web.CheckoutController - Failed to process order ORD-{=order:100000-999999}
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:83)
+	at com.acme.app.repository.OrderRepository.findPending(OrderRepository.java:114)
+	at com.acme.app.service.CheckoutService.settle(CheckoutService.java:207)
+Caused by: java.sql.SQLTransientConnectionException: main-pool - Connection is not available, request timed out after 30001ms
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)
+	... 34 common frames omitted
+{t+44} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - hikaricp_connections_pending={#9-24} hikaricp_connections_timeout_total={#30-120}
+{t+47} INFO  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - Connection acquisition p99 2ms -> {#3200-4800}ms; statement execution p99 unchanged at {#5-9}ms
+{t+52} INFO  [{svc}] [db-monitor-1] c.a.app.db.QueryMonitor - No statement exceeded the 500ms slow-query threshold in the last 30 minutes (0 entries)
+{t+55} INFO  [{svc}] [tx-monitor-1] c.a.app.db.TransactionMonitor - Mean transaction hold time {#7-12}ms, p99 {#14-19}ms; no outbound HTTP calls recorded inside transaction scope
+{t+61} WARN  [{svc}] [http-nio-8080-exec-2] c.z.hikari.pool.HikariPool - main-pool - Connection is not available, request timed out after 30002ms (total=40, active=40, idle=0, waiting={#14-30})
+{t+66} ERROR [{svc}] [http-nio-8080-exec-2] c.a.app.web.CheckoutController - Request failed, returning 503 to caller {caller}
+{t+70} INFO  [{svc}] [traffic-monitor] c.a.app.metrics.Throughput - Requests/sec {#180-260} (7-day mean {#95-130}); no deploy in the last 14 days

@@ -1,0 +1,18 @@
+{"ts":"{t+0}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":200}
+{"ts":"{t+3}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+5}","level":"WARN","svc":"{caller}","msg":"Token validation rejected upstream","reqId":"{id}","upstream":"{svc}","status":401}
+{"ts":"{t+6}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+8}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+9}","level":"ERROR","svc":"{svc}","msg":"JWT signature verification failed","reqId":"{id}","kid":"signing-key-{=kid:3-9}","detail":"certificate expired at {t-3600}"}
+{"ts":"{t+11}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+12}","level":"INFO","svc":"{caller}","msg":"health check","checks":{"db":"UP","redis":"UP","{svc}":"UP"}}
+{"ts":"{t+14}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+16}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+18}","level":"WARN","svc":"{caller}","msg":"401 rate {#3000-7000}% above 7-day baseline","window":"5m","count":{#900-2400}}
+{"ts":"{t+21}","level":"ERROR","svc":"{svc}","msg":"Cannot load signing certificate","kid":"signing-key-{=kid:3-9}","notAfter":"{t-3600}","detail":"NotAfter is in the past, rotation job last ran {#40-95} days ago"}
+{"ts":"{t+23}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+25}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+27}","level":"INFO","svc":"{caller}","msg":"metrics","cpu":{#8-19},"heapPct":{#22-38},"p99Ms":{#30-60}}
+{"ts":"{t+29}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+31}","level":"INFO","svc":"{caller}","msg":"POST /v1/sessions/validate","reqId":"{id}","status":401}
+{"ts":"{t+34}","level":"ERROR","svc":"{caller}","msg":"Login success rate {#1-6}%, normally {#96-99}%","window":"5m"}

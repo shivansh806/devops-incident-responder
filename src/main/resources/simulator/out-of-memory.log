@@ -1,0 +1,16 @@
+{t+0} INFO  [{svc}] [scheduler-2] c.a.app.batch.ExportJob - Export EXP-{=export:1000-9999} started, requested range 2026-01-01..2026-08-01
+{t+9} INFO  [{svc}] [scheduler-2] c.a.app.batch.ExportJob - Export EXP-{=export:1000-9999} loaded {#1200000-1900000} rows into memory
+{t+34} WARN  [{svc}] [G1-Young-Gen] o.a.j.GarbageCollectorMXBean - GC pause 2{#100-900}ms, heap after collection {#3500-3900}M/4096M
+{t+38} WARN  [{svc}] [G1-Young-Gen] o.a.j.GarbageCollectorMXBean - GC pause 3{#100-900}ms, heap after collection {#3900-4020}M/4096M - reclaimed 6M
+{t+42} INFO  [{svc}] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP
+{t+51} WARN  [{svc}] [G1-Young-Gen] o.a.j.GarbageCollectorMXBean - GC pause 4{#100-900}ms, heap after collection 4041M/4096M - reclaimed 2M
+{t+58} WARN  [{svc}] [http-nio-8080-exec-4] c.a.app.web.ReportController - Request REQ-{id} took {#8000-14000}ms (p99 normally {#180-260}ms)
+{t+73} ERROR [{svc}] [scheduler-2] c.a.app.batch.ExportJob - Export EXP-{=export:1000-9999} failed
+java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.util.Arrays.copyOf(Arrays.java:3512)
+	at java.base/java.lang.AbstractStringBuilder.ensureCapacityInternal(AbstractStringBuilder.java:237)
+	at com.acme.app.batch.CsvWriter.writeRow(CsvWriter.java:88)
+	at com.acme.app.batch.ExportJob.run(ExportJob.java:143)
+{t+76} ERROR [{svc}] [http-nio-8080-exec-9] o.a.c.c.C.dispatcherServlet - Servlet.service() threw exception: java.lang.OutOfMemoryError: Java heap space
+{t+79} INFO  [{svc}] [metrics-publisher] i.m.core.instrument.MeterRegistry - jvm_memory_used_bytes area=heap value=4.23e9 jvm_gc_pause_seconds_max={#4-9}.{#10-90}
+{t+84} WARN  [{svc}] [container-monitor] c.a.app.ops.PodWatcher - Container {host} restarted by kubelet, reason=OOMKilled, restartCount={#1-4}

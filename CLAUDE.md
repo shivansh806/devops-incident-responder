@@ -67,7 +67,21 @@ not blending.
 - Verified from the host, not via `docker exec` — a container-side check is
   exactly what hides an advertised-address bug. Details in docs/infra.md.
 
-**Next:** Week 3, step 2 — Kafka ingestion, then Redis caching, then WebSocket.
+**Week 3, step 2 done** — Kafka ingestion.
+- `IncidentEventConsumer` reads `incident-events` and calls the unchanged
+  `IncidentService.analyzeAndRecord`. No pipeline logic in the consumer: two
+  entry points must not be able to diagnose differently.
+- Failure policy is one place, `KafkaConsumerConfig`. Malformed → never retried,
+  straight to the DLT. Analyzer failure → one retry after 60s. **Resolver failure
+  never reaches it** — `ResolverService` already absorbs its own.
+- `max-poll-records: 1` and `max.poll.interval.ms: 600000` are correctness
+  requirements, not tuning. Read docs/ingestion.md before changing either.
+- Simulator under the `simulator` profile, 8 scenario templates, round-robin over
+  a shuffle so variety is guaranteed rather than likely.
+- **Every event costs ~6,000 Groq tokens, so ~16 events per day.** Defaults are
+  count 3 / interval 40s for that reason.
+
+**Next:** Week 3, step 3 — Redis caching, then WebSocket.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -119,6 +133,21 @@ not blending.
   produce hangs, which reads as a broker fault rather than a naming one. If the
   host port ever changes, change `KAFKA_LISTENERS`, `KAFKA_ADVERTISED_LISTENERS`
   and the `ports:` entry together. Read docs/infra.md before touching that block.
+- **The Kafka consumer builds its own ObjectMapper, and leniency is configured
+  rather than inherited.** Measured, not assumed — `KafkaObjectMapperProbe` and
+  docs/ingestion.md. A bare `new ObjectMapper()` **rejects** this project's own
+  events: `FAIL_ON_UNKNOWN_PROPERTIES` defaults to *on* in Jackson and is off in
+  this app only because Spring Boot turns it off. So the old note's "give it its
+  own mapper", taken literally, would have broken the forward compatibility it was
+  protecting. It is a private field rather than a bean because the measured risk is
+  someone autowiring the application mapper into a `JsonDeserializer`, which does
+  inherit the WARN handler. Unmodelled fields stay visible via one INFO line per
+  distinct field-name *set*, not per event.
+- **Absence of `service` on an event is not `"unknown"`.** Absent means "infer the
+  origin"; a value asserts it and overrides the model. Two simulator scenarios
+  withhold it on purpose because their logs name the victim. If absence ever maps
+  to a string, those two silently stop testing anything — `IncidentEventConsumerTest`
+  pins it.
 - **`Incident.resolution` and `Incident.resolutionNotes` must never merge.** The notes are
   what a human recorded after actually fixing an incident, and they are the only thing
   retrieval ever shows the agent. `resolution` is a machine proposal that may be wrong.
@@ -146,6 +175,12 @@ not blending.
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.
 This is the concrete justification for Week 3's Redis caching layer.
 
+Kafka ingestion spends the same budget, per event rather than per request: one
+event is two calls, ~6,000 tokens, so **~16 events a day**. The simulator defaults
+to 3 events at 40s intervals for that reason — the interval is set by the separate
+12,000/minute ceiling, not the daily one. Record the demo on a *second* run, once
+step 3's cache makes a replay free.
+
 Embeddings cost nothing against that budget — they run locally, not on Groq.
 They cost **size** instead: ~200MB of jars (83MB model + 93MB onnxruntime +
 19MB DJL tokenizer), which lands in the Week 4 Docker image. Budget for it
@@ -153,8 +188,16 @@ there rather than being surprised by it; the `-q` quantized model is the lever
 if it matters.
 
 ## Known decisions to revisit
-- Week 3: Kafka consumer needs its own ObjectMapper without the
-  unknown-property WARN handler (would flood logs at event rate)
+- ~~Week 3: Kafka consumer needs its own ObjectMapper without the
+  unknown-property WARN handler (would flood logs at event rate)~~
+  **Settled in step 2, conclusion kept and reasoning replaced.** It does get its
+  own mapper — but the "flood" was never measured and is about 4.5 lines/minute
+  at the interval the quota forces, so that was not the reason. Two things the
+  note had backwards, both measured in docs/ingestion.md: Spring Kafka's default
+  deserialiser does not inherit the handler anyway, and a bare `new ObjectMapper()`
+  **rejects** our own events outright. Left struck through rather than deleted
+  because the correction is the useful part — the action was right for reasons
+  that were wrong, which is the failure mode this file keeps catching.
 - Week 2: errorType is a closed enum with no free-text companion field.
   keyEvidence carries the specifics and the Resolver produces the
   human-readable root cause, so a separate label field was deliberately
@@ -162,6 +205,15 @@ if it matters.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
+- **Week 3: ingestion is at-least-once and nothing deduplicates.** A crash between
+  the LLM call and the offset commit re-runs the event: duplicate Mongo document,
+  second bill for the same diagnosis. `eventId` is carried and logged so a duplicate
+  is identifiable, but nothing acts on it. A unique index on `eventId` fixes the
+  storage half; the Redis cache fixes the expensive half for free, which is why this
+  waits for step 3 rather than being built now.
+- **Week 3: the DLT has no consumer and nothing alerts on it.** Failed events are
+  kept rather than lost, which was the point, but noticing them is a manual
+  `kafka-console-consumer` on `incident-events.DLT`.
 - **Week 3: a persistent Redis cache can serve a stale response after a prompt
   edit.** AOF is on and the volume survives `docker compose down`, because the
   100k/day Groq budget is the scarcer resource — see the cost note. The risk it
