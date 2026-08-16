@@ -102,8 +102,11 @@ public class IncidentSimulator implements ApplicationRunner {
         List<IncidentScenario> order = new ArrayList<>(List.of(IncidentScenario.values()));
         Collections.shuffle(order);
 
-        log.info("Simulator starting: {} event(s) to '{}', one every {}s. Estimated cost ~{} Groq tokens "
-                        + "against a 100,000/day budget",
+        // "when consumed", not "cost": producing is free, and the whole point of
+        // incident.kafka.consumer-enabled=false is to fill a topic without paying for it.
+        // An unconditional "estimated cost" line would be wrong on exactly that run.
+        log.info("Simulator starting: {} event(s) to '{}', one every {}s. ~{} Groq tokens "
+                        + "against a 100,000/day budget WHEN CONSUMED - producing costs nothing",
                 count, topic, interval.toSeconds(), count * 6_000);
 
         for (int i = 0; i < count; i++) {
