@@ -14,6 +14,15 @@ spring:
       # over any database named in the URI.
       database: ${MONGODB_DATABASE:incident_responder}
 
+    redis:
+      # localhost:6379 are Spring's defaults and docker-compose.yml publishes there on
+      # purpose; spelled out so the dependency is visible and week 4 has an override point.
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # A cache must never be the slow part of a request. If Redis cannot answer in two
+      # seconds, AnalysisCache logs and treats it as a miss.
+      timeout: 2s
+
   kafka:
     # localhost:9092 is also Spring's own default. It is spelled out because docker-compose.yml
     # chose that port deliberately to make it so - see docs/infra.md - and an env override is
@@ -98,6 +107,22 @@ langchain4j:
       log-responses: false
 
 incident:
+  cache:
+    # A response cache for Analyzer calls. The motivation is quota, not latency: one call is
+    # 5,121 measured tokens against 100,000 a day, and a hit takes nothing out of the 8,000
+    # per-minute bucket either - which is what leaves room for the Resolver.
+    #
+    # SET THIS FALSE FOR ANY MEASUREMENT RUN. AnalyzerStabilityTest asks whether the model
+    # answers identically three times; with the cache on, runs two and three are hits and it
+    # passes without measuring anything. src/test/resources/application.properties turns it
+    # off for every test for that reason.
+    enabled: true
+    # The key already covers model id, reasoning effort, both prompts, the output schema and
+    # the enum vocabularies - see AnalysisCacheKey. What it cannot cover is Groq changing the
+    # weights behind gpt-oss-120b without renaming it. This bounds how long that can go
+    # unnoticed, and is the only reason there is a TTL at all.
+    ttl: 7d
+
   kafka:
     topic: incident-events
     # A quota switch, not a feature flag. False leaves the listener container stopped, so the

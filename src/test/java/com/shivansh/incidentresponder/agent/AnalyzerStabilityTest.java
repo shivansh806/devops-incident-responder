@@ -1,6 +1,7 @@
 package com.shivansh.incidentresponder.agent;
 
 import com.shivansh.incidentresponder.model.ErrorType;
+import com.shivansh.incidentresponder.model.Severity;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.service.AnalyzerService;
 import me.paulschwarz.springdotenv.spring.DotenvApplicationInitializer;
@@ -18,12 +19,14 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -72,17 +75,51 @@ class AnalyzerStabilityTest {
     @Value("${langchain4j.open-ai.chat-model.api-key:}")
     private String apiKey;
 
+    /**
+     * The value {@code affectedService} has actually returned on this model, pinned so that a
+     * change is a red test rather than a line nobody reads.
+     * <p>
+     * <b>This is what the model does, not what the baseline says it should.</b> They disagree.
+     * {@code docs/baseline.md} expects {@code profile-service}, and recorded the risk of the
+     * dropped Redis being promoted to an origin of its own as "cleared, not merely untested" -
+     * a clearance measured on llama-3.3-70b-versatile, which Groq has retired. gpt-oss promotes
+     * it, 3 of 3. Pinning the observed value is what makes the <em>next</em> change visible;
+     * whether the value is correct is the baseline runner's question, and it is recorded as
+     * open there.
+     */
+    private static final String EXPECTED_SERVICE = "redis-cache";
+
+    /**
+     * Severity is checked by membership rather than by stability, and the asymmetry is
+     * deliberate.
+     * <p>
+     * {@code errorType} and {@code affectedService} have been observed identical on every run,
+     * so "did it move?" is a sound question to fail on. Severity has not: across four
+     * observations of this sample it returned MEDIUM three times and LOW once. Asserting
+     * stability on a field measured to vary would produce a gate that goes red on an ordinary
+     * day, and a gate that cries wolf gets ignored - which is the failure mode this change
+     * exists to remove, not to introduce.
+     * <p>
+     * So the assertion is the one the evidence supports: every run must land inside the range
+     * this sample has ever produced. HIGH or CRITICAL would be a real finding about severity
+     * calibration and fails immediately. MEDIUM-versus-LOW is the known open question that
+     * {@code docs/baseline.md} says not to tune until the sample set has more than one LOW case.
+     */
+    private static final Set<Severity> ACCEPTED_SEVERITIES = EnumSet.of(Severity.LOW, Severity.MEDIUM);
+
     @Test
-    void returnsTheSameErrorTypeForTheSameInput() {
+    void returnsTheSameDiagnosisForTheSameInput() {
         assumeTrue(apiKey != null && !apiKey.isBlank(),
                 "No GROQ_API_KEY resolved from .env or the environment - skipping the stability run");
 
         String logs = read(SAMPLE);
         List<ErrorType> answers = new ArrayList<>();
+        List<String> services = new ArrayList<>();
+        List<Severity> severities = new ArrayList<>();
 
         System.out.println();
         System.out.println("=================================================================");
-        System.out.printf(" ERRORTYPE STABILITY  -  %s x%d%n", SAMPLE, RUNS);
+        System.out.printf(" DIAGNOSIS STABILITY  -  %s x%d%n", SAMPLE, RUNS);
         System.out.println("=================================================================");
 
         for (int run = 1; run <= RUNS; run++) {
@@ -91,24 +128,53 @@ class AnalyzerStabilityTest {
             }
             LogAnalysis analysis = analyse(logs, answers, run);
             answers.add(analysis.errorType());
-            System.out.printf("  run %d  errorType=%-22s severity=%-8s confidence=%.2f%n",
-                    run, analysis.errorType(), analysis.severity(), analysis.confidence());
+            services.add(analysis.affectedService());
+            severities.add(analysis.severity());
+            System.out.printf("  run %d  errorType=%-22s service=%-18s severity=%-8s confidence=%.2f%n",
+                    run, analysis.errorType(), analysis.affectedService(),
+                    analysis.severity(), analysis.confidence());
         }
 
-        Set<ErrorType> distinct = new LinkedHashSet<>(answers);
+        Set<ErrorType> distinctTypes = new LinkedHashSet<>(answers);
+        Set<String> distinctServices = new LinkedHashSet<>(services);
+        Set<Severity> distinctSeverities = new LinkedHashSet<>(severities);
+
         System.out.println("-----------------------------------------------------------------");
-        System.out.printf("  distinct values: %d  %s%n", distinct.size(), distinct);
-        if (distinct.size() == 1 && distinct.contains(ErrorType.OTHER)) {
+        System.out.printf("  errorType       distinct: %d  %s%n", distinctTypes.size(), distinctTypes);
+        System.out.printf("  affectedService distinct: %d  %s%n", distinctServices.size(), distinctServices);
+        System.out.printf("  severity        distinct: %d  %s%n", distinctSeverities.size(), distinctSeverities);
+        if (distinctTypes.size() == 1 && distinctTypes.contains(ErrorType.OTHER)) {
             // Stable but uninformative. Worth saying out loud - it is the signal that the
             // vocabulary is missing a constant, not that the enum failed.
             System.out.println("  STABLE, but every run landed on OTHER - the vocabulary is missing a value");
         }
+        if (distinctSeverities.size() > 1) {
+            System.out.printf("  NOTE severity varied %s - expected on this sample, see ACCEPTED_SEVERITIES%n",
+                    distinctSeverities);
+        }
         System.out.println("=================================================================");
         System.out.println();
 
-        assertThat(distinct)
-                .as("errorType must be identical across %d runs of the same input", RUNS)
-                .hasSize(1);
+        // Asserted together rather than one at a time. A run costs 5,121 tokens and over two
+        // minutes of pacing, so stopping at the first failure would hide the other two fields
+        // and cost a whole further run to see them. Same reasoning as the baseline runner
+        // reporting every sample instead of aborting - except these are mechanism claims, so
+        // unlike the baseline they do assert.
+        assertAll(
+                () -> assertThat(distinctTypes)
+                        .as("errorType must be identical across %d runs of the same input", RUNS)
+                        .hasSize(1),
+                () -> assertThat(distinctServices)
+                        .as("affectedService must be identical across %d runs of the same input", RUNS)
+                        .hasSize(1),
+                () -> assertThat(distinctServices)
+                        .as("affectedService moved - if this is a deliberate prompt or model change, "
+                                + "update EXPECTED_SERVICE and record it in docs/baseline.md")
+                        .containsExactly(EXPECTED_SERVICE),
+                () -> assertThat(severities)
+                        .as("severity outside the range this sample has ever produced - a real "
+                                + "finding about calibration, not a flaky test")
+                        .allMatch(ACCEPTED_SEVERITIES::contains));
     }
 
     /**

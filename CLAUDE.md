@@ -104,8 +104,19 @@ not blending.
   origin-vs-reporter prompt rule does not transfer. Note the shape of this: the
   gate went green while a field it does not assert changed underneath.
 
-**Next:** Week 3, step 3 — Redis caching, then WebSocket. **Put the model id in
-the cache key** — the retirement just turned that hypothetical into a live case.
+**Week 3, step 3 done** — Redis caching of Analyzer responses.
+- Key is `analysis:v1:<fingerprint>:<input>`, and the fingerprint covers **model id**,
+  reasoning effort, both prompts, the output schema and the enum vocabularies — all
+  derived reflectively, so a prompt edit or a new `ErrorType` invalidates entries
+  without anyone remembering to bump a constant. See docs/caching.md.
+- The Resolver is deliberately **not** cached: its input includes retrieved precedent,
+  which changes on every call through `analyzeAndRecord`.
+- `incident.cache.enabled=false` is a **measurement guard, not a feature flag**, and
+  is off for every test. With it on, `AnalyzerStabilityTest` would pass on cache hits
+  without measuring anything.
+- Fails open in both directions — a dead Redis is a miss, never a failed diagnosis.
+
+**Next:** Week 3, step 4 — WebSocket.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -242,13 +253,15 @@ if it matters.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
-- **A single event's two calls exceed the whole per-minute bucket.** 5,121 + ~4,700
-  is ~9,800 against 8,000, and they run back to back inside `analyzeAndRecord` with
-  nothing between them. The **Resolver** is what 429s, and `ResolverService` absorbs
-  it — so the predicted symptom is *every incident stored with a diagnosis and no
-  recommendation*, silently. No interval fixes this; only the cache does, by making
-  a repeated Analyzer call free. **Computed from measured call sizes, not yet
-  observed live** — verify it before designing around it.
+- **A single event's two calls exceed the whole per-minute bucket. CONFIRMED LIVE
+  2026-08-19.** Groq's own refusal: *"Limit 8000, Used 4715, Requested 3585"*. The
+  incident stored with `resolution: NULL`, the silent symptom as predicted.
+  **LangChain4j retried twice internally and still failed** — a token bucket needs
+  wall-clock seconds, so raising the retry count is not the fix. The cache removes
+  it on a *repeat* (verified: same input, Analyzer free, Resolver succeeded), but
+  **a first diagnosis of new logs still loses its resolution**, and that is what a
+  real incident is. Remaining options are a delay between the agents, smaller
+  prompts, or a paid tier. See docs/caching.md.
 - **The measurement debt: baseline.md and resolver.md both need full re-runs.**
   ~41,000 tokens for one 8-sample Analyzer run (3 runs to settle a judgement field),
   ~38,000 for the 8-observation Resolver set. That is more than a day. Deliberately

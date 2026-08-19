@@ -58,13 +58,26 @@ design. So the symptom is not an error: it is **incidents stored with a diagnosi
 recommendation**, on every event, with nothing in the pipeline reporting a problem. On the old
 model 6,000 fitted inside 12,000 and this could not happen.
 
-This is recorded rather than fixed because the fix is the next step's Redis cache: a cached
-Analyzer response costs zero tokens and leaves the entire bucket for the Resolver. The
-alternatives, if the cache turns out not to cover it — a delay between the two agents, smaller
-prompts, or a paid tier — are all worse or slower.
+**Confirmed live on 2026-08-19**, and it is no longer a prediction. `LivePipelineProbe` ran one
+event from a bucket idle for an hour; Groq stated the arithmetic in its own refusal:
 
-It has not been observed in a live run, only computed from measured call sizes. It is a
-prediction with arithmetic behind it, which is the honest status.
+```
+Rate limit reached ... on tokens per minute (TPM): Limit 8000, Used 4715, Requested 3585.
+Please try again in 2.25s.
+```
+
+The incident stored with `resolution: NULL` — the silent symptom described above, exactly as
+written. **LangChain4j retried twice on its own and still failed**, so "raise the retry count"
+is not the fix: a token bucket needs wall-clock seconds to refill and the built-in policy
+returns faster than that.
+
+The same probe's second call, on identical input, hit the cache: the Analyzer cost nothing, the
+Resolver had the whole bucket, and a recommendation was produced. Numbers in `docs/caching.md`.
+
+**Still open for a cold incident.** The cache only removes the Analyzer call on a *repeat*. A
+first diagnosis of genuinely new logs makes both calls back to back and will still lose its
+resolution — which is what a live incident is. The remaining options are a delay between the two
+agents, smaller prompts, or a paid tier; none is attractive enough to build on one observation.
 
 This is the same arithmetic that paces `AnalyzerBaselineTest` at 65 seconds, and the same
 argument for the Redis cache in the next step - now a much sharper one, given the burst

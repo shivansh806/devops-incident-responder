@@ -1,6 +1,7 @@
 package com.shivansh.incidentresponder.service;
 
 import com.shivansh.incidentresponder.agent.AnalyzerAgent;
+import com.shivansh.incidentresponder.cache.AnalysisCache;
 import com.shivansh.incidentresponder.agent.AnalyzerOutput;
 import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
@@ -17,6 +18,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -47,6 +49,14 @@ public class AnalyzerService {
 
     private final AnalyzerAgent analyzerAgent;
 
+    /**
+     * Caching sits here rather than in {@code IncidentService} because this is the boundary
+     * the expensive, deterministic-enough call lives behind. The Resolver is deliberately not
+     * cached: its input includes retrieved precedent, which changes as the corpus grows, so a
+     * hit would be answering a question that is no longer the one being asked.
+     */
+    private final AnalysisCache analysisCache;
+
     /** Analyses logs whose originating service is unknown, leaving the model to identify it. */
     public LogAnalysis analyze(String rawLogs) {
         return analyze(rawLogs, null);
@@ -72,6 +82,24 @@ public class AnalyzerService {
         log.info("Analyzing {} characters of logs (service={})",
                 rawLogs.length(), service == null ? "to be inferred" : service);
 
+        // The normalised service is what goes into the key, so a caller sending " payment "
+        // and one sending "payment" share an entry rather than paying twice.
+        String cacheKey = null;
+        if (analysisCache.isEnabled()) {
+            cacheKey = analysisCache.keyFor(rawLogs, service);
+            Optional<LogAnalysis> cached = analysisCache.get(cacheKey);
+            if (cached.isPresent()) {
+                LogAnalysis hit = cached.get();
+                // Logged at INFO and worth it: a hit is the difference between a free call and
+                // 5,121 tokens, and "was this answer paid for?" is the first question anyone
+                // reading a surprising diagnosis should be able to settle from the log.
+                log.info("Analysis cache HIT {} - returning {} on {} without calling the model",
+                        cacheKey, hit.errorType(), hit.affectedService());
+                return hit;
+            }
+            log.info("Analysis cache MISS {}", cacheKey);
+        }
+
         AnalyzerOutput output;
         try {
             output = service == null
@@ -88,6 +116,13 @@ public class AnalyzerService {
         LogAnalysis analysis = toAnalysis(output, service);
         log.info("Diagnosis: errorType={} service={} severity={} confidence={}",
                 analysis.errorType(), analysis.affectedService(), analysis.severity(), analysis.confidence());
+
+        // Only a normalised, fully-formed analysis is stored - never the raw model output.
+        // Whatever is cached is what a later caller receives, so it has to have been through
+        // the same defences as an uncached answer.
+        if (cacheKey != null) {
+            analysisCache.put(cacheKey, analysis);
+        }
         return analysis;
     }
 

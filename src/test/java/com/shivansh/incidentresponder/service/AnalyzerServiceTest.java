@@ -1,6 +1,7 @@
 package com.shivansh.incidentresponder.service;
 
 import com.shivansh.incidentresponder.agent.AnalyzerAgent;
+import com.shivansh.incidentresponder.cache.AnalysisCache;
 import com.shivansh.incidentresponder.agent.AnalyzerOutput;
 import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.LogAnalysis;
@@ -32,6 +33,14 @@ class AnalyzerServiceTest {
 
     @Mock
     private AnalyzerAgent analyzerAgent;
+
+    /**
+     * Mocked and left at its defaults, which report the cache as disabled - so every case
+     * below exercises the uncached path exactly as it did before the cache existed. The
+     * cache's own behaviour is measured in AnalysisCacheKeyTest and AnalysisCacheTest.
+     */
+    @Mock
+    private AnalysisCache analysisCache;
 
     @InjectMocks
     private AnalyzerService analyzerService;
