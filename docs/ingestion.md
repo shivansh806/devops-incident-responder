@@ -28,26 +28,47 @@ is free; the consumer is what costs money.
 
 ## What it costs
 
-**Every event is two Groq calls — roughly 6,000 tokens.** An Analyzer call of 2,500–3,400 plus
-a Resolver call of about 3,500.
+**Every event is two Groq calls — about 9,800 tokens** on `openai/gpt-oss-120b`. An Analyzer
+call measured at **5,121** (input 4,109, output 1,012) plus a Resolver call of roughly 4,700.
 
-| | |
-|---|---|
-| Tokens per event | ~6,000 |
-| Groq free tier, per day | 100,000 |
-| **Events available per day** | **about 16** |
-| Groq free tier, per minute | 12,000 |
-| **Minimum sustainable interval** | **~35s** |
+| | on `gpt-oss-120b` (current) | on `llama-3.3-70b` (retired) |
+|---|---|---|
+| Tokens per event | **~9,800** | ~6,000 |
+| Groq free tier, per day | 100,000 (unconfirmed for this model) | 100,000 |
+| **Events available per day** | **about 10** | about 16 |
+| Groq free tier, per minute | **8,000** | 12,000 |
+| **Minimum sustainable interval** | **~75s** | ~35s |
 
-So the defaults are `count: 3` and `interval: 40s`, not 8 and something brisk. A full
-eight-scenario run is about half the daily budget — fine when it is the run being recorded,
-wasteful as a default.
+So the defaults are `count: 3` and `interval: 90s`. A full eight-scenario run is ~78,000 —
+most of the daily budget, not half of it.
 
 Two limits, and they fail differently. The per-minute one is what the interval is for; going
 faster earns a 429 with plenty of daily budget left. The per-day one no interval can fix.
 
-This is the same arithmetic that paces `AnalyzerBaselineTest` at 25 seconds, and the same
-argument for the Redis cache in the next step. **The demo is worth recording on the second
+### The interval cannot fix the within-event burst
+
+**A single event's two calls together exceed the whole per-minute bucket.** 5,121 + 4,700 is
+~9,800 against a ceiling of 8,000, and the two calls run back to back inside
+`IncidentService.analyzeAndRecord` with nothing between them. The bucket refills at ~133
+tokens a second, so however long the pipeline has been idle, the Analyzer call leaves roughly
+2,900 and the Resolver needs ~4,700 — about 14 seconds short.
+
+The **Resolver** is the call that 429s, and `ResolverService` absorbs its own failures by
+design. So the symptom is not an error: it is **incidents stored with a diagnosis and no
+recommendation**, on every event, with nothing in the pipeline reporting a problem. On the old
+model 6,000 fitted inside 12,000 and this could not happen.
+
+This is recorded rather than fixed because the fix is the next step's Redis cache: a cached
+Analyzer response costs zero tokens and leaves the entire bucket for the Resolver. The
+alternatives, if the cache turns out not to cover it — a delay between the two agents, smaller
+prompts, or a paid tier — are all worse or slower.
+
+It has not been observed in a live run, only computed from measured call sizes. It is a
+prediction with arithmetic behind it, which is the honest status.
+
+This is the same arithmetic that paces `AnalyzerBaselineTest` at 65 seconds, and the same
+argument for the Redis cache in the next step - now a much sharper one, given the burst
+problem above. **The demo is worth recording on the second
 run, once responses are cached** — a replay then costs nothing and runs at whatever speed
 reads well on video.
 
@@ -116,7 +137,7 @@ nothing.
 ### `auto-offset-reset` stays at `latest`
 
 Against the advice of every tutorial. It only applies when a group has no committed offset, and
-`earliest` there means replaying the whole topic the first time the app starts — at ~6,000
+`earliest` there means replaying the whole topic the first time the app starts — at ~9,800
 tokens an event, potentially the entire daily budget before the first log line is read.
 
 An existing group resumes from its committed offsets under either setting, which is the case

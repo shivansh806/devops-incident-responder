@@ -81,7 +81,31 @@ not blending.
 - **Every event costs ~6,000 Groq tokens, so ~16 events per day.** Defaults are
   count 3 / interval 40s for that reason.
 
-**Next:** Week 3, step 3 — Redis caching, then WebSocket.
+**2026-08-19 — the model changed under us.** Groq retired
+`llama-3.3-70b-versatile`; it 404s. Now on **`openai/gpt-oss-120b`** with
+`reasoning-effort: medium` pinned.
+- Chosen by measurement, not spec sheet — `ModelCandidateProbe`. It was the only
+  sound option left: `qwen/qwen3.6-27b` writes `<think>` inline in `content` and
+  cannot drive the prompt-based JSON path, `groq/compound` is an agentic system
+  with web search, `allam-2-7b` has a 4k context the Analyzer prompt overflows.
+- **docs/baseline.md and docs/resolver.md are now history, not baselines.** Both
+  carry a banner saying so. Nothing in them has been re-measured. A change under
+  the new model is *not* a regression against those figures — a different model
+  is not an intervention.
+- **TPM dropped 12,000 → 8,000 and a call got dearer** (5,121 measured, was
+  ~2,500–3,400). Pacing was wrong everywhere and is fixed: all three llm
+  harnesses 25s → **65s**, simulator 40s → **90s**. Two calls no longer fit in a
+  60-second window at all, so this is a different regime, not a tweak.
+- **`AnalyzerStabilityTest` passes 3/3 on the new model** — `CACHE_UNAVAILABLE`
+  every run, no 429s. The enum's guarantee survives the swap.
+- **But the same run showed `affectedService` moving `profile-service` →
+  `redis-cache`, 3 of 3.** docs/baseline.md had recorded that specific risk as
+  "cleared, not merely untested" — the clearance was a property of llama. The
+  origin-vs-reporter prompt rule does not transfer. Note the shape of this: the
+  gate went green while a field it does not assert changed underneath.
+
+**Next:** Week 3, step 3 — Redis caching, then WebSocket. **Put the model id in
+the cache key** — the retirement just turned that hypothetical into a live case.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -123,6 +147,15 @@ not blending.
   and adds no fourth credential. It also makes retrieval quality deterministic
   and free to re-measure, unlike the Analyzer baseline.
 
+- **`reasoning-effort` is pinned, not defaulted.** gpt-oss is a reasoning model and
+  the effort level is a hidden input Groq could change under us — which would read
+  as model drift in a baseline run, the one thing this project's measurement
+  discipline cannot absorb. `medium` is what the default resolves to today
+  (measured), so pinning changes nothing now and stops it changing later. `low`
+  was measured and saves only **7%** (4,757 vs 5,121) because input dominates at
+  4,109 tokens and is fixed by the prompt — the lever does not work, so there is
+  no reason to take the quality risk. `high` is disqualified: 1,577 completion
+  tokens on a *toy* prompt.
 - **A Kafka listener's published port and advertised port must be the same number.**
   The app runs on the host, in IntelliJ, not in a container. A client uses
   `bootstrap.servers` once to fetch metadata and then *reconnects to whatever
@@ -175,10 +208,14 @@ not blending.
 Groq free tier: 100k tokens/day. Four full 8-sample baseline runs exhausted it.
 This is the concrete justification for Week 3's Redis caching layer.
 
-Kafka ingestion spends the same budget, per event rather than per request: one
-event is two calls, ~6,000 tokens, so **~16 events a day**. The simulator defaults
-to 3 events at 40s intervals for that reason — the interval is set by the separate
-12,000/minute ceiling, not the daily one. Record the demo on a *second* run, once
+**These figures are for `openai/gpt-oss-120b` and replace the llama-3.3-70b ones.**
+Per-minute ceiling **8,000**, down from 12,000. One Analyzer call is **5,121 tokens**
+measured (input 4,109, output 1,012); the Resolver is ~4,700.
+
+Kafka ingestion spends the budget per event rather than per request: one event is
+two calls, **~9,800 tokens**, so **~10 events a day**. The simulator defaults to 3
+events at 90s intervals for that reason — the interval is set by the separate
+per-minute ceiling, not the daily one. Record the demo on a *second* run, once
 step 3's cache makes a replay free.
 
 Embeddings cost nothing against that budget — they run locally, not on Groq.
@@ -205,6 +242,24 @@ if it matters.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
+- **A single event's two calls exceed the whole per-minute bucket.** 5,121 + ~4,700
+  is ~9,800 against 8,000, and they run back to back inside `analyzeAndRecord` with
+  nothing between them. The **Resolver** is what 429s, and `ResolverService` absorbs
+  it — so the predicted symptom is *every incident stored with a diagnosis and no
+  recommendation*, silently. No interval fixes this; only the cache does, by making
+  a repeated Analyzer call free. **Computed from measured call sizes, not yet
+  observed live** — verify it before designing around it.
+- **The measurement debt: baseline.md and resolver.md both need full re-runs.**
+  ~41,000 tokens for one 8-sample Analyzer run (3 runs to settle a judgement field),
+  ~38,000 for the 8-observation Resolver set. That is more than a day. Deliberately
+  deferred until after the cache lands, and **the cache must be cold or bypassed
+  during any re-measurement** or a stale hit corrupts exactly the run-to-run
+  comparability those files rest on.
+- **The Resolver's `decidingEvidence` argument may not survive the model change.**
+  It was added because generation is autoregressive and the discriminator procedure
+  "had nowhere to run". gpt-oss reasons *before* emitting content, so the procedure
+  may now have somewhere to run regardless. Cheapest check is the binary one:
+  `decidingEvidence` stated 8 of 8 was the mechanism-fired measure.
 - **Week 3: ingestion is at-least-once and nothing deduplicates.** A crash between
   the LLM call and the offset commit re-runs the event: duplicate Mongo document,
   second bill for the same diagnosis. `eventId` is carried and logged so a duplicate

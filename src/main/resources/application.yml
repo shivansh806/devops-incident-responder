@@ -40,7 +40,7 @@ spring:
       # auto-offset-reset is deliberately left at Kafka's default of "latest", against the
       # advice of every tutorial. It only applies when a group has no committed offset, and
       # "earliest" there means replaying the entire topic the first time the app starts - at
-      # ~6,000 tokens an event, potentially the whole day's budget before the first log line.
+      # ~9,800 tokens an event, potentially the whole day's budget before the first log line.
       # An existing group resumes from its committed offsets either way, which is the case
       # that actually matters.
 
@@ -72,7 +72,26 @@ langchain4j:
       # app bootable without a key (calls then fail with 401 rather than the context
       # failing to start) - never put a literal key here.
       api-key: ${GROQ_API_KEY:}
-      model-name: llama-3.3-70b-versatile
+      # llama-3.3-70b-versatile was retired by Groq and now 404s. Of what Groq still
+      # serves, this is the only sound choice: qwen/qwen3.6-27b writes its <think> block
+      # inline in `content` and cannot drive LangChain4j's prompt-based JSON path at all,
+      # groq/compound is an agentic system with built-in web search, and allam-2-7b has a
+      # 4k context that the Analyzer prompt alone overflows. Measured in ModelCandidateProbe.
+      #
+      # EVERY NUMBER IN docs/baseline.md AND docs/resolver.md PREDATES THIS. They were
+      # measured on the retired model and have not been re-measured. See those files.
+      model-name: openai/gpt-oss-120b
+      # Pinned, not left to the default, because gpt-oss is a reasoning model and the effort
+      # level is a hidden input that Groq could change under us - which would look exactly
+      # like model drift in a baseline run. `medium` is what the default resolves to today
+      # (measured: 134 completion tokens unset vs 120 at medium), so pinning it changes
+      # nothing today and stops it changing tomorrow.
+      #
+      # `low` is not worth it: measured on a real Analyzer call it saves 7% (4,757 vs 5,121
+      # total) because input dominates at 4,109 tokens and is fixed by the prompt. `high` is
+      # disqualified - 1,577 completion tokens on a *toy* prompt, a fifth of the minute
+      # budget for one trivial call.
+      reasoning-effort: medium
       temperature: 0.2
       timeout: 60s
       log-requests: false
@@ -88,11 +107,17 @@ incident:
     consumer-enabled: true
 
   simulator:
-    # Three, not eight, because each event costs ~6,000 Groq tokens against 100,000 per day.
-    # A full eight-scenario run is about half the daily budget - fine when it is the run you
-    # are recording, wasteful as a default. See IncidentSimulator.
+    # Three, not eight, because each event costs ~9,800 Groq tokens against 100,000 per day.
+    # A full eight-scenario run is ~78,000 - most of the daily budget. See IncidentSimulator.
     count: 3
-    # Paced against the 12,000 tokens-per-minute ceiling, which is a separate limit from the
-    # daily one. Two events inside a minute is ~12,000 tokens and lands on a 429 regardless of
-    # how much daily budget is left.
-    interval: 40s
+    # Was 40s, sized for a 12,000 tokens-per-minute ceiling and a ~6,000 token event. On
+    # openai/gpt-oss-120b the ceiling is 8,000 and an event is ~9,800 (Analyzer 5,121
+    # measured, Resolver ~4,700), so the bucket refills at ~133 tokens/second and one event
+    # needs ~75 seconds of refill. 90s leaves headroom.
+    #
+    # NOTE this does not fix the harder problem: an event's two calls run back to back and
+    # together exceed the 8,000 bucket, so the Resolver call can 429 within a single event no
+    # matter how far apart events are. ResolverService absorbs that as a null resolution, so
+    # the symptom is incidents stored with a diagnosis and no recommendation. See
+    # docs/ingestion.md - the Redis cache is the fix, not a longer interval.
+    interval: 90s

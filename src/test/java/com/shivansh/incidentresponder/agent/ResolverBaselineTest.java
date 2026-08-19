@@ -71,17 +71,21 @@ class ResolverBaselineTest {
     static final int RUNS = 8;
 
     /**
-     * Groq's free tier caps tokens per <em>minute</em> at 12,000, separately from the 100,000
-     * per day. This prompt is about 3,500 tokens a call, so three calls back to back reach the
-     * ceiling and everything after them 429s - the first attempt at this baseline lost four of
-     * its eight runs that way.
+     * Groq caps tokens per <em>minute</em> separately from the daily budget, and the first
+     * attempt at this baseline lost four of its eight runs to that limit.
      * <p>
-     * 25 seconds keeps it under three calls per minute with room to spare. It makes a full
-     * baseline take three and a half minutes, which is the correct trade: a refused call
-     * measures nothing, and a run of nulls in the middle of a distribution is worse than
-     * waiting.
+     * <b>The ceiling was 12,000 on llama-3.3-70b-versatile; on openai/gpt-oss-120b it is
+     * 8,000.</b> This prompt renders to about 3,750 input tokens, and gpt-oss adds reasoning
+     * on top as billed completion, so a call is roughly 4,700. Two in a 60-second window is
+     * ~9,400 and over the ceiling, so the gap has to exceed a full window - the old "under
+     * three calls per minute" framing no longer has a setting that satisfies it.
+     * <p>
+     * 65 seconds puts at most one call in any window. A full eight-observation baseline now
+     * takes about nine minutes, up from three and a half, which is the same trade as before:
+     * a refused call measures nothing, and a run of nulls in the middle of a distribution is
+     * worse than waiting.
      */
-    private static final long PACING_MILLIS = 25_000;
+    private static final long PACING_MILLIS = 65_000;
 
     /**
      * The diagnosis, frozen. Approximates what the Analyzer produced on the live run: it

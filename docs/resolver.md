@@ -1,5 +1,32 @@
 # Resolver measurement
 
+> ## ⚠ Every measurement in this file was made on a model that no longer exists
+>
+> Both sets — the twelve pre-fix observations and the eight post-fix ones — were measured on
+> **`llama-3.3-70b-versatile`**, which Groq **retired**. The application moved to
+> **`openai/gpt-oss-120b`** on 2026-08-19 and **nothing here has been re-measured**.
+>
+> Two things need re-establishing before anything below is acted on, and they are different
+> kinds of claim:
+>
+> 1. **The rates** (67% → 88%, confidence spread 0.30 → 0.12) describe a model that is gone.
+> 2. **The mechanism argument may no longer hold.** `decidingEvidence` was added because the
+>    four-step discriminator procedure *had nowhere to run*: generation is autoregressive, so
+>    the model was forced to emit `rootCause` before any comparison work could happen.
+>    **gpt-oss is a reasoning model and does hidden reasoning before emitting any content at
+>    all.** The procedure may now have somewhere to run regardless — which would make the fix
+>    redundant — or it may still be load-bearing. Unknown, and worth knowing. The cheapest
+>    check is the binary one: `decidingEvidence` stated 8 of 8 was the mechanism-fired
+>    measure, and it reads off a single run.
+>
+> The closing instruction — *measure future interventions against misattribution, not
+> blending* — is **suspect for the same reason**. It describes llama's residual failure mode.
+> Carrying it forward would repeat exactly the error this project has documented twice:
+> assuming a prior failure mode is still the live one.
+>
+> The **cost and pacing** figures in *Reproducing* have been corrected in place, because a
+> stale rate limit causes failed runs rather than merely misleading ones.
+
 What the Resolver Agent does when past incidents disagree, measured rather than assumed. It
 exists to answer one question: **given three precedents that share a failure class and reached
 opposite conclusions, does the agent choose between them on evidence?**
@@ -38,7 +65,7 @@ If the Resolver hedges here it is not for want of evidence.
 
 | | |
 |---|---|
-| Model | llama-3.3-70b-versatile on Groq, temperature 0.2 |
+| Model | **llama-3.3-70b-versatile** on Groq, temperature 0.2 — **retired, see the banner** |
 | Diagnosis | frozen in the harness, five evidence lines, not produced by a live Analyzer |
 | Candidates | frozen, loaded from `seed/incidents.json`, scores from `RetrievalProbe` |
 | Retrieval | not called — Atlas is bypassed |
@@ -296,9 +323,14 @@ Analyzer chose its own evidence lines — so those are not in the twelve.
 mvn test -Dtest=ResolverBaselineTest -Dsurefire.excludedGroups= -DfailIfNoSpecifiedTests=false
 ```
 
-Eight calls, ~28k tokens, ~3.5 minutes with pacing. Tagged `llm`, so `mvn test` never runs it.
+Eight calls. **On `gpt-oss-120b` that is ~38k tokens and about nine minutes**, not the ~28k and
+3.5 minutes this took on the retired model: the prompt renders to ~3,750 input tokens, gpt-oss
+bills its reasoning as completion on top, and the per-minute ceiling dropped from 12,000 to
+8,000 — so the pacing had to go from 25s to 65s. Two calls in a 60-second window is now over
+the limit, which no setting below a full window can satisfy. Tagged `llm`, so `mvn test` never
+runs it.
 
-## Status: measured 2026-08-16
+## Status: measured 2026-08-16 on a model retired since
 
 Pre-fix: 12 observations, prompt as of commit `7380e74`.
 Post-fix: 8 observations, after `decidingEvidence` was added as the first output field.

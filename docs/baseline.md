@@ -1,5 +1,25 @@
 # Analyzer baseline harness
 
+> ## ⚠ Every measurement in this file was made on a model that no longer exists
+>
+> All results below were measured on **`llama-3.3-70b-versatile`**, which Groq **retired**;
+> the endpoint now returns 404. The application moved to **`openai/gpt-oss-120b`** on
+> 2026-08-19 and **nothing here has been re-measured**.
+>
+> Nothing below is *wrong* — it is an accurate record of a configuration that is gone. But it
+> is history, not a current baseline. This file's own rule is *compare matrices across runs,
+> not fields within one*, and there is no comparable matrix until the new model has its own.
+>
+> **Do not read any number here as describing current behaviour**, and in particular do not
+> treat a change under the new model as a regression against these figures — a different model
+> is not an intervention. Findings most likely to be model-specific: the `OTHER` rate of 0/8,
+> the claim that nothing needed rescuing by the lenient enum parser, the `+05:30` → UTC
+> conversion on `disk-full`, the origin-vs-reporter fix on `auth-failure-spike`, `slow-query`
+> landing on `SLOW_QUERY`, and the `cache-miss-spike` severity floor.
+>
+> The **costs and pacing** sections have been corrected in place, because a stale rate limit
+> causes failed runs rather than merely misleading ones.
+
 Eight sample log files and a runner that sends all of them through the Analyzer Agent and
 prints the results side by side. It exists to answer one question: **where does the Analyzer
 break?**
@@ -35,17 +55,25 @@ key resolves, the test skips rather than failing.
 
 This makes **eight real, billable Groq calls**. Roughly:
 
-| | |
-|---|---|
-| Tokens per call | ~2,500–3,400 (the log dump dominates) |
-| Tokens per full run | ~27,000 |
-| Groq free tier, per minute | 12,000 TPM |
-| Groq free tier, per day | 100,000 TPD |
-| **Full runs available per day** | **about three** |
+| | on `gpt-oss-120b` (current) | on `llama-3.3-70b` (retired) |
+|---|---|---|
+| Tokens per call | **5,121 measured** (input 4,109, output 1,012) | ~2,500–3,400 |
+| Tokens per full run | **~41,000** | ~27,000 |
+| Groq free tier, per minute | **8,000 TPM** | 12,000 TPM |
+| Groq free tier, per day | 100,000 TPD (unconfirmed for this model) | 100,000 TPD |
+| **Full runs available per day** | **about two** | about three |
 
-Two different limits, and they need different handling. The runner paces **25 seconds between
-samples** so no 60-second window ever holds more than three calls (~10,200 tokens, inside the
-TPM ceiling). It also retries once after a 65-second backoff if a call is rate limited.
+The per-call figure is measured, not estimated — `ModelCandidateProbe` on
+`connection-pool-exhaustion.log`. Input dominates and is not reducible by settings: it is the
+9,141-character system prompt plus the log dump. Output grew because gpt-oss is a reasoning
+model and its reasoning is billed as completion tokens; `reasoning-effort: low` was measured
+and saves only 7% (4,757 vs 5,121), which is why it is not used.
+
+Two different limits, and they need different handling. **The runner paces 65 seconds between
+samples**, which is a different regime from the old 25 seconds rather than a tweak to it: at
+5,121 tokens a call, *two* calls in any 60-second window is 10,242 and over the 8,000 ceiling,
+so the gap has to exceed a full window outright. It also retries once after a 65-second
+backoff if a call is rate limited. A full run now takes about nine minutes, up from three.
 
 Neither helps against the **daily** cap. When TPD is exhausted the remaining samples fail with
 a 429 and are reported as `CALL FAILED` — the run continues rather than aborting, so you still
@@ -264,7 +292,50 @@ cost, for the week 3 cache. Until then the affordable discipline is to state how
 observations a claim rests on, and to treat a one- or two-run finding as a hypothesis with the
 run count written next to it.
 
+## First observations on `openai/gpt-oss-120b`
+
+Not a baseline — one sample, from the stability run on 2026-08-19. Recorded because two of
+the three fields it touches do **not** match what this file records for the retired model, and
+that is worth knowing before the full re-run is budgeted.
+
+`AnalyzerStabilityTest`, `cache-miss-spike.log` x3, 65s pacing, no 429s at any point:
+
+```
+  run 1  errorType=CACHE_UNAVAILABLE   service=redis-cache   severity=MEDIUM   confidence=0.90
+  run 2  errorType=CACHE_UNAVAILABLE   service=redis-cache   severity=MEDIUM   confidence=0.90
+  run 3  errorType=CACHE_UNAVAILABLE   service=redis-cache   severity=MEDIUM   confidence=0.92
+  distinct values: 1  [CACHE_UNAVAILABLE]        -> PASS
+```
+
+**`errorType` is stable 3 of 3.** The mechanism the enum guarantees — one of the constants,
+same one every time, no rescue by the lenient parser — survives the model change. That was the
+question the run was asked and the answer is clean.
+
+**`affectedService` returned `redis-cache`, not `profile-service`, on all three runs.** This
+file's 2026-08-11 entry says the opposite in as many words: *"The datastore bullet is cleared,
+not merely untested. `cache-miss-spike` returned `profile-service`; the broadened origin rule
+did not promote the dropped Redis to an origin of its own."* On gpt-oss it **is** promoted. The
+origin-vs-reporter rule was written and tuned against llama and does not transfer intact.
+
+Three consistent runs is this file's own threshold for calling a judgement field changed rather
+than varying, so this is a real difference and not noise. It is also **exactly the regression
+risk that was flagged and then declared cleared** — which is the useful part: the clearance was
+a property of the model, and nothing recorded it as such at the time.
+
+**`severity` stayed MEDIUM where the harness expects LOW** — the one known open failure,
+unchanged. A fourth observation from an aborted run returned LOW, so the field is varying the
+way a judgement field does; 3 of 4 MEDIUM matches llama's behaviour closely enough that nothing
+has changed here.
+
+**What this does not establish.** One sample of eight, and the stability harness only asserts
+`errorType` — it prints the other two without checking them, which is why a green gate sat on
+top of a changed `affectedService`. Seven samples have not been run at all. The `OTHER` rate,
+the timezone conversion, the origin fix on `auth-failure-spike` and every confidence figure
+remain unmeasured on this model.
+
 ## Run log
+
+
 
 Newest first. Compare matrices across runs, not fields within one.
 

@@ -1,6 +1,8 @@
 package com.shivansh.incidentresponder.agent;
 
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
 import org.junit.jupiter.api.Tag;
@@ -12,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Reports, does not assert. Answers one question before any configuration is changed:
@@ -37,8 +40,12 @@ import java.time.Duration;
 @Tag("llm")
 class ModelCandidateProbe {
 
-    /** Change this to probe a different candidate. */
-    private static final String CANDIDATE = "openai/gpt-oss-120b";
+    /** Overridable so a candidate can be tried without editing the file. */
+    private static final String CANDIDATE =
+            System.getProperty("probe.model", "openai/gpt-oss-120b");
+
+    private static final String REASONING_EFFORT =
+            System.getProperty("probe.reasoning-effort", "medium");
 
     private static final String SAMPLE = "src/test/resources/logs/connection-pool-exhaustion.log";
 
@@ -50,18 +57,34 @@ class ModelCandidateProbe {
 
         String logs = Files.readString(Path.of(SAMPLE), StandardCharsets.UTF_8);
 
+        // Token usage is the input every pacing decision downstream depends on, and it is
+        // discarded by AiServices when the return type is a plain record. A listener is the
+        // only way to see it without changing the agent interface.
+        AtomicReference<String> usage = new AtomicReference<>("not reported");
+        ChatModelListener usageListener = new ChatModelListener() {
+            @Override
+            public void onResponse(ChatModelResponseContext context) {
+                var t = context.chatResponse().metadata().tokenUsage();
+                usage.set(t == null ? "not reported"
+                        : "input=%d output=%d total=%d".formatted(
+                                t.inputTokenCount(), t.outputTokenCount(), t.totalTokenCount()));
+            }
+        };
+
         ChatModel model = OpenAiChatModel.builder()
                 .baseUrl("https://api.groq.com/openai/v1")
                 .apiKey(apiKey)
                 .modelName(CANDIDATE)
+                .reasoningEffort(REASONING_EFFORT)
                 .temperature(0.2)
                 .timeout(Duration.ofSeconds(90))
+                .listeners(java.util.List.of(usageListener))
                 .build();
 
         AnalyzerAgent agent = AiServices.create(AnalyzerAgent.class, model);
 
         System.out.println("\n================ model candidate probe ================");
-        System.out.printf("  candidate : %s%n", CANDIDATE);
+        System.out.printf("  candidate : %s (reasoning-effort=%s)%n", CANDIDATE, REASONING_EFFORT);
         System.out.printf("  sample    : %s (%,d chars)%n", SAMPLE, logs.length());
 
         long start = System.currentTimeMillis();
@@ -77,6 +100,7 @@ class ModelCandidateProbe {
         long ms = System.currentTimeMillis() - start;
 
         System.out.printf("  RESULT    : parsed into AnalyzerOutput in %,dms%n", ms);
+        System.out.printf("  TOKENS    : %s%n", usage.get());
         System.out.printf("    errorType       : %s%n", output.errorType());
         System.out.printf("    affectedService : %s%n", output.affectedService());
         System.out.printf("    severity        : %s%n", output.severity());

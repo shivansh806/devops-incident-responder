@@ -173,15 +173,24 @@ class AnalyzerBaselineTest {
     );
 
     /**
-     * Gap between samples. The Groq free tier allows 12,000 tokens per minute over a sliding
-     * window, and one sample costs roughly 2,500-3,400 tokens (the log dump dominates). At 25s
-     * spacing no 60-second window ever holds more than three calls, so the ceiling is about
-     * 10,200 tokens - under the limit with room to spare. Without this the last two samples
-     * were rate limited and never ran at all.
+     * Gap between samples.
      * <p>
-     * Raise it if the samples grow. The whole run takes roughly three minutes.
+     * <b>Was 25 seconds, sized for a 12,000 token-per-minute ceiling and a 2,500-3,400 token
+     * sample. Both of those numbers died with llama-3.3-70b-versatile.</b> On
+     * {@code openai/gpt-oss-120b} the per-minute ceiling is <b>8,000</b>, and one measured
+     * call on {@code connection-pool-exhaustion.log} costs <b>5,121 tokens</b> - input 4,109,
+     * output 1,012. The input is the 9,141-character system prompt plus the log dump and is
+     * not reducible by settings; the output grew because gpt-oss is a reasoning model and its
+     * reasoning is billed as completion tokens.
+     * <p>
+     * At 5,121 tokens a call, <b>two calls in any 60-second window is 10,242 - over the
+     * ceiling</b>. So the spacing has to exceed 60 seconds outright, which is a different
+     * regime from the old "three per window" arithmetic rather than a tweak to it. 65 seconds
+     * guarantees at most one call per window.
+     * <p>
+     * A full eight-sample run now takes about nine minutes, up from three.
      */
-    private static final Duration PACING = Duration.ofSeconds(25);
+    private static final Duration PACING = Duration.ofSeconds(65);
 
     /** A full window's wait, so a retry starts from a clean budget rather than a nearly full one. */
     private static final Duration RATE_LIMIT_BACKOFF = Duration.ofSeconds(65);

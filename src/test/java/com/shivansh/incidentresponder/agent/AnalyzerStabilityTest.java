@@ -55,8 +55,13 @@ class AnalyzerStabilityTest {
 
     private static final int RUNS = 3;
 
-    /** Same TPM reasoning as the baseline runner: three calls in a window stays inside 12k. */
-    private static final Duration PACING = Duration.ofSeconds(25);
+    /**
+     * Same TPM reasoning as the baseline runner, and the same correction: the ceiling is now
+     * 8,000 tokens a minute and one call costs about 5,100, so a single call is all a
+     * 60-second window will hold. Anything at or under 60 seconds puts two in a window and
+     * 429s the second. See {@code AnalyzerBaselineTest.PACING} for the measurement.
+     */
+    private static final Duration PACING = Duration.ofSeconds(65);
 
     /** A full window's wait, so a retry starts from a clean per-minute budget. */
     private static final Duration RATE_LIMIT_BACKOFF = Duration.ofSeconds(65);

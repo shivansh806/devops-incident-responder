@@ -39,15 +39,26 @@ import java.util.random.RandomGenerator;
  * that long would be indistinguishable from a hang.
  *
  * <h2>What it costs, and why the defaults are small</h2>
- * <b>Every event is two Groq calls</b>, roughly 6,000 tokens: an Analyzer call of 2,500-3,400
- * plus a Resolver call of about 3,500. Against the free tier's 100,000 tokens per day that is
- * about <b>16 events for the whole day</b>, and a full eight-scenario run is roughly half of
- * it. The default count is therefore 3, not 8.
+ * <b>Every event is two Groq calls</b>, about <b>9,800 tokens</b> on
+ * {@code openai/gpt-oss-120b}: an Analyzer call measured at 5,121 (input 4,109, output 1,012)
+ * plus a Resolver call of roughly 4,700. Against the free tier's 100,000 tokens per day that
+ * is about <b>10 events for the whole day</b>, and a full eight-scenario run is ~78,000 -
+ * most of it. The default count is therefore 3, not 8.
  * <p>
- * The interval defaults to 40 seconds for a different limit: 12,000 tokens per <em>minute</em>.
- * At ~6,000 tokens an event, anything faster than about 35 seconds walks into a 429 that has
- * nothing to do with the daily budget. This is the same arithmetic that made
- * {@code AnalyzerBaselineTest} pace at 25 seconds for a one-call sample.
+ * These figures replace the ~6,000 per event measured on {@code llama-3.3-70b-versatile},
+ * which Groq retired. The rise is mostly input: gpt-oss tokenises the same prompt to more
+ * tokens, and its reasoning is billed as completion.
+ * <p>
+ * The interval defaults to 90 seconds for a different limit: <b>8,000</b> tokens per
+ * <em>minute</em>, down from 12,000. The bucket refills at ~133 tokens a second, so one
+ * ~9,800 token event needs ~75 seconds of refill before the next can run.
+ * <p>
+ * <b>The interval cannot fix the within-event burst.</b> The two calls run back to back
+ * inside {@code IncidentService.analyzeAndRecord}, and 5,121 + 4,700 exceeds the 8,000 bucket
+ * however long the pipeline has been idle. The Resolver call is the one that 429s, and
+ * {@code ResolverService} absorbs it as a null resolution - so the symptom is incidents
+ * stored with a diagnosis and no recommendation, on a free-tier key. The Redis cache is what
+ * fixes it; see {@code docs/ingestion.md}.
  * <p>
  * Producing costs nothing by itself. To fill a topic for free and look at the events before
  * paying for any of them, run with {@code incident.kafka.consumer-enabled=false}.
@@ -74,6 +85,14 @@ public class IncidentSimulator implements ApplicationRunner {
             "cluster", "prod-blr-1",
             "alertRuleId", "AR-2291",
             "schemaVersion", 2);
+
+    /**
+     * Measured on openai/gpt-oss-120b, not estimated: an Analyzer call is 5,121 tokens
+     * (ModelCandidateProbe) and the Resolver prompt renders to ~4,700. Update this when the
+     * model changes - it is the number the log line reports and the one the interval default
+     * is derived from.
+     */
+    private static final int TOKENS_PER_EVENT = 9_800;
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper mapper = IncidentEventParser.eventObjectMapper();
@@ -107,7 +126,7 @@ public class IncidentSimulator implements ApplicationRunner {
         // An unconditional "estimated cost" line would be wrong on exactly that run.
         log.info("Simulator starting: {} event(s) to '{}', one every {}s. ~{} Groq tokens "
                         + "against a 100,000/day budget WHEN CONSUMED - producing costs nothing",
-                count, topic, interval.toSeconds(), count * 6_000);
+                count, topic, interval.toSeconds(), count * TOKENS_PER_EVENT);
 
         for (int i = 0; i < count; i++) {
             IncidentScenario scenario = order.get(i % order.size());
