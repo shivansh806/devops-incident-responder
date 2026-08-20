@@ -1,115 +1,115 @@
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useIncidentStream } from './useIncidentStream';
+import IncidentList from './components/IncidentList';
+import IncidentDetail from './components/IncidentDetail';
+import SeverityFilter from './components/SeverityFilter';
+import SubmitForm from './components/SubmitForm';
 
-// Vite exposes env vars to browser code only when they are prefixed VITE_. Anything
-// without that prefix stays on the build machine, which is what stops a stray secret
-// in .env from being compiled into a public bundle.
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/ws/incidents';
+const STATUS_LABELS = {
+  connecting: 'Connecting',
+  open: 'Live',
+  closed: 'Disconnected',
+  error: 'Connection failed',
+};
 
 const STATUS_STYLES = {
-  connecting: 'bg-amber-400/15 text-amber-300 ring-amber-400/30',
-  open: 'bg-emerald-400/15 text-emerald-300 ring-emerald-400/30',
-  closed: 'bg-slate-400/15 text-slate-300 ring-slate-400/30',
-  error: 'bg-rose-400/15 text-rose-300 ring-rose-400/30',
+  connecting: 'bg-slate-100 text-slate-700 ring-slate-300',
+  open: 'bg-emerald-50 text-emerald-800 ring-emerald-300',
+  closed: 'bg-slate-100 text-slate-700 ring-slate-300',
+  error: 'bg-red-50 text-red-800 ring-red-300',
 };
 
 export default function App() {
-  const [status, setStatus] = useState('connecting');
-  const [detail, setDetail] = useState('');
-  const [frames, setFrames] = useState([]);
+  const { status, detail, incidents, backlogCount, upsert } = useIncidentStream();
+  const [selectedId, setSelectedId] = useState(null);
+  const [severities, setSeverities] = useState([]);
 
-  // A ref is a mutable box that survives re-renders without causing one. Used here as a
-  // frame counter, because deriving the number from state inside a callback would read a
-  // stale value captured when the callback was created.
-  const seq = useRef(0);
+  // Counts come from the unfiltered list so the filter buttons keep showing what is
+  // there rather than what survived the filter.
+  const counts = useMemo(() => {
+    const acc = {};
+    for (const incident of incidents) {
+      const severity = incident.analysis?.severity;
+      if (severity) acc[severity] = (acc[severity] ?? 0) + 1;
+    }
+    return acc;
+  }, [incidents]);
 
-  useEffect(() => {
-    // React StrictMode mounts every component twice in development, on purpose, to surface
-    // effects that do not clean up after themselves. So this runs twice and opens two
-    // sockets - the cleanup below closes the first. Without it you get two live
-    // connections and every frame twice, which looks exactly like a server bug.
-    let cancelled = false;
-    const ws = new WebSocket(WS_URL);
+  const visible = useMemo(
+    () =>
+      severities.length === 0
+        ? incidents
+        : incidents.filter((i) => severities.includes(i.analysis?.severity)),
+    [incidents, severities],
+  );
 
-    ws.onopen = () => {
-      if (cancelled) return;
-      setStatus('open');
-      setDetail(WS_URL);
-    };
+  const byId = useMemo(() => new Map(incidents.map((i) => [i.id, i])), [incidents]);
 
-    ws.onmessage = (event) => {
-      if (cancelled) return;
-      seq.current += 1;
-      setFrames((prev) => [
-        ...prev,
-        { n: seq.current, at: new Date().toLocaleTimeString(), raw: event.data },
-      ]);
-    };
-
-    // The browser deliberately withholds the reason a WebSocket failed - a refused
-    // handshake and an unreachable host are the same empty event here. The close code
-    // that follows is the only clue, so it is shown rather than swallowed.
-    ws.onerror = () => {
-      if (cancelled) return;
-      setStatus('error');
-      setDetail('handshake or transport failed - see the browser console and the app log');
-    };
-
-    ws.onclose = (event) => {
-      if (cancelled) return;
-      setStatus('closed');
-      setDetail(`code ${event.code}${event.reason ? ` - ${event.reason}` : ''}`);
-    };
-
-    return () => {
-      cancelled = true;
-      ws.close();
-    };
-  }, []);
+  // Reading the selection out of the live map rather than holding the object means a
+  // selected incident updates in place if a later frame replaces it.
+  const selected = selectedId ? byId.get(selectedId) : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-mono text-sm">
-      <header className="sticky top-0 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-6 py-4">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="border-b border-slate-200 bg-white px-6 py-4">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <h1 className="text-slate-100 font-semibold">incident stream &mdash; raw frames</h1>
+          <h1 className="text-lg font-semibold">Incident Responder</h1>
           <span
-            className={`rounded-full px-2.5 py-0.5 text-xs ring-1 ring-inset ${STATUS_STYLES[status]}`}
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_STYLES[status]}`}
           >
-            {status}
+            {STATUS_LABELS[status]}
           </span>
-          <span className="text-xs text-slate-500">{detail}</span>
-          <span className="ml-auto text-xs text-slate-500">
-            {frames.length} frame{frames.length === 1 ? '' : 's'}
-          </span>
+          {status === 'open' && backlogCount !== null && (
+            <span className="text-sm text-slate-500">
+              {incidents.length} incidents · {backlogCount} replayed on connect
+            </span>
+          )}
+          {status !== 'open' && detail && (
+            <span className="text-sm text-slate-500">{detail}</span>
+          )}
         </div>
       </header>
 
-      <main className="px-6 py-5">
-        {frames.length === 0 ? (
-          <p className="text-slate-500">
-            No frames yet. A healthy connection sends a <code>connected</code> frame
-            immediately, followed by up to ten <code>history</code> frames.
-          </p>
-        ) : (
-          <ol className="space-y-2">
-            {frames.map((frame) => (
-              <li
-                key={frame.n}
-                className="rounded border border-slate-800 bg-slate-900/50 overflow-hidden"
-              >
-                <div className="flex gap-3 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-500">
-                  <span>#{frame.n}</span>
-                  <span>{frame.at}</span>
-                </div>
-                {/* Printed verbatim. This page deliberately does not parse the frame: it is
-                    here to show what is actually on the wire, including anything unexpected. */}
-                <pre className="px-3 py-2 whitespace-pre-wrap break-all text-slate-300">
-                  {frame.raw}
-                </pre>
-              </li>
-            ))}
-          </ol>
-        )}
-      </main>
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-6 px-6 py-6 lg:flex-row lg:items-start">
+        <div className="w-full lg:w-[420px] lg:shrink-0">
+          <section className="rounded border border-slate-200 bg-white">
+            <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
+              Submit logs
+            </h2>
+            <SubmitForm onAnalyzed={(incident) => {
+              upsert(incident, 'live');
+              setSelectedId(incident.id);
+            }} />
+          </section>
+
+          <section className="mt-6 rounded border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h2 className="text-sm font-semibold text-slate-700">Incidents</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Newest first, by analysis time.
+              </p>
+              <div className="mt-3">
+                <SeverityFilter
+                  selected={severities}
+                  onChange={setSeverities}
+                  counts={counts}
+                />
+              </div>
+            </div>
+            <div className="max-h-[calc(100vh-8rem)] overflow-y-auto">
+              <IncidentList
+                incidents={visible}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
+            </div>
+          </section>
+        </div>
+
+        <main className="min-w-0 flex-1 rounded border border-slate-200 bg-white">
+          <IncidentDetail incident={selected} byId={byId} />
+        </main>
+      </div>
     </div>
   );
 }

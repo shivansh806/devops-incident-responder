@@ -227,7 +227,58 @@ so "it forwards `Origin` unchanged" stays reasoned-only.
 On a fresh database the first thing the page shows is `connected` plus ten `history` frames
 of seeded `INC-` incidents with null `resolution`. That is expected, not a bug.
 
-**Next:** Week 4, step 2 — the dashboard UI.
+**Week 4, step 2 done — the dashboard. Live feed, detail, severity filter, submit form.**
+Full reasoning in docs/frontend.md; read it before changing the merge rules or the proxy.
+
+- **The CORS decision is settled: Vite dev proxy, not `addCorsMappings`.** `/api` and `/ws`
+  both proxy to 8080, so the browser calls only its own origin and there is no cross-origin
+  request to permit — no preflight, no CORS config, no second origin list, and **no backend
+  change in this step either**.
+- **The argument is not convenience, it is that relative URLs are what production wants.**
+  Week 4's endpoint is one Docker image serving the bundle and the API from one origin, where
+  `/api/analyze` already resolves with no config. Absolute URLs would mean threading
+  `VITE_API_URL` through the build and accepting a class of bug where a shipped bundle points
+  at `localhost:8080`. The proxy makes the production topology the default and dev the special
+  case, in a config block that never ships.
+- **`addCorsMappings` was rejected mainly because it gets worse later, not because it is
+  wrong now.** It creates a second origin list beside `WebSocketConfig`'s to drift against; it
+  leaves localhost entries in production config that outlive their reason and get widened to
+  `*` by someone who cannot tell what they are for; and it turns awkward the moment auth
+  arrives, since `allowCredentials` may not be combined with a wildcard origin. "No
+  authentication" is already on the revisit list.
+- **The proxy does NOT remove the WebSocket allowlist entry, and that is now load-bearing.**
+  It forwards `Origin` on the upgrade, so Spring still checks it — the proxy buys a relative
+  URL, not permission. The socket runs through the proxy now, so a wrong allowlist means the
+  dashboard does not connect at all. **It is covered by luck as much as design**: whether Vite
+  forwards `http://localhost:5173` untouched or rewrites it to `http://localhost:8080`, both
+  are already in the list — 8080 being there for the unrelated week 3 reason that a non-empty
+  list replaces the same-origin default. **Which of the two actually happens has not been
+  determined.** If that list is ever trimmed, this is what breaks first.
+
+Three contract rules the UI implements, each one a thing a naive client gets wrong:
+- **Sorted on `analyzedAt`, never arrival.** Two senders share one socket and a live frame can
+  overtake the replay. Not `firstOccurrence` — the model reads that out of the logs, it can be
+  null and it can be wrong.
+- **Duplicates are expected and absorbed on `id`.** Register-before-backlog makes them
+  possible on purpose. When one incident arrives both ways **`live` wins**, because that flag
+  only decides how a null resolution reads and a live frame is direct evidence the Resolver
+  was asked, where history is merely the absence of it.
+- **A null `resolution` renders two different ways**, by frame type. `history` shows the
+  human's `resolutionNotes`; `incident` says the Resolver ran and produced nothing and the
+  diagnosis was kept anyway. No pending state and no spinner — `analyzeAndRecord` is
+  synchronous, so there is no "not yet".
+
+Precedents are rendered as **citations resolved against incidents already in memory**, not
+fetched per selection, and are deliberately **unnumbered** where suggested actions are
+numbered — actions are a sequence, precedents are an unordered set whose rank means nothing.
+
+**Status: builds clean, not run against the backend.** `npm run build` passes. **Nothing here
+has been exercised live** — not the proxy, not the preflight-free POST, not the merge under a
+real duplicate, and not the `type: "incident"` null-resolution branch, which needs a
+rate-limited Resolver to appear at all. Step 1 verified the *direct* handshake from 5173; the
+*proxied* handshake is a different path and is unverified.
+
+**Next:** Week 4, step 3 — Docker image serving the built bundle and the API from one origin.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -377,13 +428,17 @@ there rather than being surprised by it; the `-q` quantized model is the lever
 if it matters.
 
 ## Known decisions to revisit
-- **Week 4 step 2: the first `fetch` to the API is a real CORS problem.** Unlike the socket,
-  an XHR to `http://localhost:8080` from `:5173` *is* governed by CORS and will be blocked.
-  Two fixes, and they are not equivalent: server-side `addCorsMappings` keeps the direct
-  connection and adds a second origin list to keep in sync with the WebSocket one, while a
-  Vite proxy makes every URL origin-relative and covers both — but does **not** remove the
-  WebSocket allowlist entry, because it forwards `Origin` unchanged. Decide once, for both
-  transports, rather than reaching for whichever is nearer at the time.
+- ~~Week 4 step 2: the first `fetch` to the API is a real CORS problem. Decide once, for
+  both transports, rather than reaching for whichever is nearer at the time.~~
+  **Settled in step 2: the Vite proxy, for both transports.** The entry called it right —
+  the two fixes are not equivalent and the deciding reason was not the one nearest to hand.
+  What the note got slightly wrong is *why* the proxy wins: it framed the choice as
+  "origin-relative URLs cover both", which is true but reads as tidiness. The actual argument
+  is that relative URLs are what the week 4 Docker image needs anyway, so the proxy makes the
+  production topology the default rather than papering over a dev inconvenience.
+  **The warning in the note is the part that survived intact and got more important**: the
+  proxy does not remove the WebSocket allowlist entry, and now that the socket runs through
+  the proxy, that entry is what the whole dashboard's connection rests on.
 - ~~Week 3: Kafka consumer needs its own ObjectMapper without the
   unknown-property WARN handler (would flood logs at event rate)~~
   **Settled in step 2, conclusion kept and reasoning replaced.** It does get its
