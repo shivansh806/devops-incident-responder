@@ -249,11 +249,22 @@ Full reasoning in docs/frontend.md; read it before changing the merge rules or t
 - **The proxy does NOT remove the WebSocket allowlist entry, and that is now load-bearing.**
   It forwards `Origin` on the upgrade, so Spring still checks it — the proxy buys a relative
   URL, not permission. The socket runs through the proxy now, so a wrong allowlist means the
-  dashboard does not connect at all. **It is covered by luck as much as design**: whether Vite
-  forwards `http://localhost:5173` untouched or rewrites it to `http://localhost:8080`, both
-  are already in the list — 8080 being there for the unrelated week 3 reason that a non-empty
-  list replaces the same-origin default. **Which of the two actually happens has not been
-  determined.** If that list is ever trimmed, this is what breaks first.
+  dashboard does not connect at all.
+- **Which origin Spring actually sees is now determined, and it is not the reassuring
+  answer.** This was written up as "covered by luck as much as design" on the grounds that
+  Vite might forward `http://localhost:5173` untouched or rewrite it to
+  `http://localhost:8080`, with both in the list either way. **Vite forwards it untouched.**
+  Its `rewriteOriginHeader` fires only when the `rewriteWsOrigin` option is set — a separate,
+  explicitly named option that this project does not set — so Spring sees
+  `http://localhost:5173`. Read out of the bundled proxy implementation in
+  `node_modules/vite/dist/node/chunks/node.js`, not observed on the wire; the live run
+  confirms the handshake succeeds but cannot discriminate, because both candidates are
+  allowed.
+  **So the second entry is not a safety net.** `http://localhost:8080` is doing nothing for
+  the dashboard — it is there for the unrelated week 3 reason that a non-empty list replaces
+  the same-origin default. **The 5173 entry alone is what the dashboard's connection rests
+  on**, and removing it breaks the dashboard with no fallback. The margin the earlier note
+  credited to luck does not exist.
 
 Three contract rules the UI implements, each one a thing a naive client gets wrong:
 - **Sorted on `analyzedAt`, never arrival.** Two senders share one socket and a live frame can
@@ -272,11 +283,27 @@ Precedents are rendered as **citations resolved against incidents already in mem
 fetched per selection, and are deliberately **unnumbered** where suggested actions are
 numbered — actions are a sequence, precedents are an unordered set whose rank means nothing.
 
-**Status: builds clean, not run against the backend.** `npm run build` passes. **Nothing here
-has been exercised live** — not the proxy, not the preflight-free POST, not the merge under a
-real duplicate, and not the `type: "incident"` null-resolution branch, which needs a
-rate-limited Resolver to appear at all. Step 1 verified the *direct* handshake from 5173; the
-*proxied* handshake is a different path and is unverified.
+**Status: verified live 2026-08-20.** The dashboard works end to end. The proxied WebSocket
+handshake connects, the backlog renders as a sorted feed, the detail panel reads, a live push
+arrives, and **the form's `POST /api/analyze` goes through the proxy with no CORS
+configuration anywhere in the backend** — `grep` for `addCorsMappings`, `CorsConfiguration` or
+`@CrossOrigin` across `src/main` still returns nothing.
+
+**That settles the proxy decision as measured, not merely reasoned.** The claim it rests on is
+that a same-origin call needs no CORS, and the evidence is a `Content-Type: application/json`
+POST — which is not a simple request and would have required a preflight the backend has no
+handler for — completing normally. Had the browser treated it as cross-origin it would have
+failed at the `OPTIONS`.
+
+**Still unverified, and not implied by the above:**
+- **The `type: "incident"` null-resolution branch.** It needs the Resolver to fail, which
+  needs a rate limit to survive the 15s retry. The branch that renders a *successful*
+  resolution is covered by this run; the failure branch is not, and it is the one that only
+  appears under exactly the burst condition the revisit list still has open.
+- **The duplicate merge under a real duplicate.** Register-before-backlog makes one possible,
+  but the window is narrow and nothing forced it. The merge is exercised only in the sense
+  that the form's own incident arrives twice — HTTP response and frame — which is the easy
+  case and shares a code path with the hard one without proving it.
 
 **Next:** Week 4, step 3 — Docker image serving the built bundle and the API from one origin.
 

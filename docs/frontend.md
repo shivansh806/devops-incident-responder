@@ -85,20 +85,30 @@ origin and still checks it. The proxy buys a relative URL, not permission.
 This is now load-bearing rather than trivia: the socket runs through the proxy, so if the
 allowlist were wrong the dashboard would not connect at all.
 
-It is safe by luck as much as design, and worth knowing which:
+This was first written up as "safe by luck as much as design", on the grounds that Vite might
+forward the origin untouched or rewrite it to the target, with both values listed either way.
+**That is now determined, and the answer removes the margin rather than confirming it.**
 
-| If Vite forwards `Origin` as | Spring sees | Listed? |
-|---|---|---|
-| untouched — `http://localhost:5173` | the browser's origin | yes |
-| rewritten to the target — `http://localhost:8080` | the app's own origin | yes |
+**Vite forwards `Origin` untouched.** Its `rewriteOriginHeader` fires only when the
+`rewriteWsOrigin` option is set — a separate, explicitly named option this project does not
+set — so Spring sees `http://localhost:5173` on the upgrade:
 
-**Both possible behaviours are already covered**, because `WebSocketConfig` lists the app's own
-origin as well as the dev server's — which it does for an unrelated reason (a non-empty list
-replaces the same-origin default, so leaving 8080 off would lock out a browser console on the
-app itself). A decision made in week 3 for one reason turns out to cover this one too. That is
-luck, and it is recorded as luck: **which of the two rows is actually happening has not been
-determined**, only that the handshake succeeds either way. If the allowlist is ever trimmed,
-this is what breaks.
+```js
+// node_modules/vite/dist/node/chunks/node.js
+const rewriteOriginHeader = (proxyReq, options, config) => {
+  if (options.rewriteWsOrigin) { … proxyReq.setHeader("origin", changedOrigin); }
+};
+```
+
+Read out of the bundled implementation, **not observed on the wire**. The live run confirms the
+handshake succeeds but cannot discriminate between the two candidates, because both are
+allowed — which is exactly why reading the source was the only thing that could settle it.
+
+**So `http://localhost:8080` in the allowlist is not a safety net for the dashboard.** It is
+there for the unrelated week 3 reason that a non-empty list replaces the same-origin default,
+and it covers a browser console on the app's own origin, not this. **The 5173 entry alone is
+what the dashboard's connection rests on.** Trim it and the dashboard stops connecting, with
+nothing behind it.
 
 ### When to revisit
 
@@ -188,13 +198,43 @@ through a recording.
 **Record the demo on a second run.** The cache makes the replay free, which is what step 3 of
 week 3 was for.
 
-## Status: builds clean, not run against the backend
+## Status: verified live 2026-08-20
 
-`npm run build` passes. **Nothing here has been exercised against a running system** — not the
-proxy, not the preflight-free `POST`, not the merge under a real duplicate, not the
-`type: "incident"` null-resolution branch, which needs a rate-limited Resolver to appear at
-all.
+The dashboard works end to end. The proxied WebSocket handshake connects, the backlog renders
+as a sorted feed, the detail panel reads, a live push arrives, and the form's
+`POST /api/analyze` goes through the proxy **with no CORS configuration anywhere in the
+backend** — `grep` for `addCorsMappings`, `CorsConfiguration` or `@CrossOrigin` across
+`src/main` returns nothing.
 
-The one thing step 1 verified live is the direct handshake from 5173 without the proxy. The
-proxied handshake is a different path and is unverified. Listed plainly because this file's
-own conventions demand it, and because the proxy claim above is the one that would fail first.
+That settles the proxy decision as measured rather than reasoned, and the POST is the part
+that carries the weight. It sends `Content-Type: application/json`, which is **not** a simple
+request, so a cross-origin call would have required an `OPTIONS` preflight that nothing here
+answers. It completed normally. Had the browser seen two origins, it would have failed before
+the request body was ever sent.
+
+| Check | Status |
+|---|---|
+| Proxied WebSocket handshake | verified live |
+| Backlog renders, sorted newest-first | verified live |
+| Detail panel, successful resolution | verified live |
+| Live push arriving on the socket | verified live |
+| `POST /api/analyze` with no CORS config | verified live |
+| Which `Origin` Vite forwards | read from source, not the wire |
+| `type: "incident"` null resolution | **not verified** |
+| Merge under a genuine duplicate | **not verified** |
+
+The last two are worth keeping in view rather than rounding up to "it works".
+
+**The `type: "incident"` null-resolution branch needs the Resolver to fail**, which needs a
+rate limit to survive the 15s retry. This run exercised the branch that renders a *successful*
+resolution; the failure branch shares nothing with it but a component. It is also the branch
+that only appears under exactly the burst condition CLAUDE.md still has open on the revisit
+list — so it will most likely first be seen during a recording, which is the argument for
+having written it carefully rather than discovering it then.
+
+**The duplicate merge has not met a real duplicate.** The register-before-backlog window is
+narrow and nothing forced it. What this run did exercise is the form's own incident arriving
+twice — once as the HTTP response, once as a frame — which uses the same merge but is the easy
+case: both copies are identical and both are `live`. The hard case is the same id arriving as
+`history` and `incident`, where the `live`-wins rule decides how a null resolution reads.
+Sharing a code path is not the same as proving one.

@@ -19,11 +19,16 @@ export default defineConfig({
     // no addCorsMappings, no preflight handling, and no second origin list to keep in
     // sync with the WebSocket one. See docs/frontend.md for the full argument.
     //
-    // This does NOT remove the WebSocket allowed-origins entry. The proxy forwards the
-    // browser's Origin header on the upgrade, so Spring still sees an origin and still
-    // checks it. Both possible values are already listed: http://localhost:5173 if the
-    // header is forwarded untouched, http://localhost:8080 if the proxy rewrites it to
-    // the target. Whichever Vite does, the handshake is allowed.
+    // This does NOT remove the WebSocket allowed-origins entry. Vite forwards the
+    // browser's Origin header on the upgrade untouched - its rewriteOriginHeader only
+    // fires when the `rewriteWsOrigin` option is set, and it is not set here - so Spring
+    // sees http://localhost:5173 and still checks it against the allowlist.
+    //
+    // That entry is what this dashboard's connection rests on, alone. The other listed
+    // origin, http://localhost:8080, is NOT a fallback for it: it is there for the
+    // unrelated reason that a non-empty list replaces Spring's same-origin default, and
+    // it covers a browser console on the app's own origin. Removing 5173 breaks the
+    // dashboard with nothing behind it.
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
