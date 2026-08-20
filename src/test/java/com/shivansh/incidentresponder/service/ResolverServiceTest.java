@@ -8,7 +8,9 @@ import com.shivansh.incidentresponder.model.AgentResolution;
 import com.shivansh.incidentresponder.model.ErrorType;
 import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.LogAnalysis;
+import dev.langchain4j.exception.RateLimitException;
 import com.shivansh.incidentresponder.model.Severity;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -17,11 +19,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -56,8 +62,19 @@ class ResolverServiceTest {
     @Mock
     private SimilarIncidentSearch similarIncidentSearch;
 
-    @InjectMocks
+    /**
+     * Built by hand rather than with {@code @InjectMocks} because the backoff is a constructor
+     * argument and these cases must not actually wait. {@link Duration#ZERO} keeps the retry
+     * <em>path</em> under test while removing its cost - what is being checked is that a retry
+     * happens at all and only for the right failure, not how long it pauses. The real 15s and
+     * the arithmetic behind it live on the field's javadoc.
+     */
     private ResolverService resolverService;
+
+    @BeforeEach
+    void setUp() {
+        resolverService = new ResolverService(resolverAgent, similarIncidentSearch, Duration.ZERO);
+    }
 
     @Captor
     private ArgumentCaptor<String> pastIncidentsBlock;
@@ -233,5 +250,77 @@ class ResolverServiceTest {
                 null,
                 Instant.parse("2026-03-09T14:58:31Z"),
                 null), 0.94);
+    }
+
+    /**
+     * The case the whole retry exists for. One incident is two model calls back to back; the
+     * Analyzer goes first and takes the larger share of the per-minute bucket, so the Resolver
+     * is the one refused. Confirmed live - Groq's own message was
+     * "Limit 8000, Used 4715, Requested 3585".
+     */
+    @Test
+    void retriesOnceWhenRateLimitedAndKeepsTheResolutionThatComesBack() {
+        when(similarIncidentSearch.findSimilar(any(), anyInt())).thenReturn(List.of());
+        when(resolverAgent.resolve(anyString(), anyString()))
+                .thenThrow(new RateLimitException("429 Too Many Requests: rate_limit_exceeded"))
+                .thenReturn(new ResolverOutput(
+                        "Acquisition time rose while execution stayed flat",
+                        "The pool is undersized for current traffic",
+                        List.of("Raise maximumPoolSize to 40"),
+                        List.of(),
+                        0.85));
+
+        AgentResolution resolution = resolverService.resolve(ANALYSIS);
+
+        assertThat(resolution).isNotNull();
+        assertThat(resolution.rootCause()).isEqualTo("The pool is undersized for current traffic");
+        verify(resolverAgent, times(2)).resolve(anyString(), anyString());
+    }
+
+    /**
+     * A second refusal is a per-day limit or a genuinely busy minute, and neither is fixed by
+     * waiting again. The contract below the retry is unchanged: the diagnosis survives, the
+     * recommendation does not.
+     */
+    @Test
+    void givesUpAfterOneRetryAndStillKeepsTheDiagnosis() {
+        when(similarIncidentSearch.findSimilar(any(), anyInt())).thenReturn(List.of());
+        when(resolverAgent.resolve(anyString(), anyString()))
+                .thenThrow(new RateLimitException("429 Too Many Requests"));
+
+        assertThat(resolverService.resolve(ANALYSIS)).isNull();
+        verify(resolverAgent, times(2)).resolve(anyString(), anyString());
+    }
+
+    /**
+     * Waiting fixes a rate limit and nothing else. A parse failure or a timeout would fail
+     * identically on a second attempt, so retrying one would spend 15 seconds of a thread that
+     * is holding a Kafka partition to learn nothing.
+     */
+    @Test
+    void doesNotRetryFailuresThatAreNotRateLimits() {
+        when(similarIncidentSearch.findSimilar(any(), anyInt())).thenReturn(List.of());
+        when(resolverAgent.resolve(anyString(), anyString()))
+                .thenThrow(new RuntimeException("Could not parse the model reply"));
+
+        assertThat(resolverService.resolve(ANALYSIS)).isNull();
+        verify(resolverAgent, times(1)).resolve(anyString(), anyString());
+    }
+
+    /**
+     * LangChain4j maps a 429 to RateLimitException today, which is what the live run threw. This
+     * pins the message-based fallback, which is there for the day something between the model
+     * and here wraps the exception - the kind of change a library upgrade makes silently.
+     */
+    @Test
+    void recognisesARateLimitThatArrivesWrappedInAnotherException() {
+        when(similarIncidentSearch.findSimilar(any(), anyInt())).thenReturn(List.of());
+        when(resolverAgent.resolve(anyString(), anyString()))
+                .thenThrow(new IllegalStateException("call failed",
+                        new RuntimeException("429 Too Many Requests: rate_limit_exceeded")))
+                .thenReturn(new ResolverOutput("evidence", "cause", List.of("act"), List.of(), 0.8));
+
+        assertThat(resolverService.resolve(ANALYSIS)).isNotNull();
+        verify(resolverAgent, times(2)).resolve(anyString(), anyString());
     }
 }

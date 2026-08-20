@@ -107,6 +107,20 @@ langchain4j:
       log-responses: false
 
 incident:
+  resolver:
+    # Paid only when the Resolver is actually refused, never on a call that fits.
+    #
+    # Derived, not picked: the per-minute bucket is 8,000 tokens refilling at ~133/second, and
+    # one event's deficit is analyzer + resolver - 8000. Measured live at 4,715 + 3,585 = 8,300,
+    # a deficit of 300, which Groq itself priced at 2.25s. Against the largest measured Analyzer
+    # call (5,121) it is 706, or 5.3s. 15s covers a deficit of ~2,000 - room for longer log
+    # dumps and more verbose retrieved precedent.
+    #
+    # This is NOT a fixed delay between the two agents. That would have slowed POST /api/analyze
+    # too, since both entry points share IncidentService.analyzeAndRecord, and would have been
+    # wasted whenever the Analyzer came from cache and the Resolver had the whole bucket anyway.
+    rate-limit-backoff: 15s
+
   cache:
     # A response cache for Analyzer calls. The motivation is quota, not latency: one call is
     # 5,121 measured tokens against 100,000 a day, and a hit takes nothing out of the 8,000

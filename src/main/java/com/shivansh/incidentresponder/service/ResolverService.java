@@ -8,13 +8,16 @@ import com.shivansh.incidentresponder.embedding.SimilarIncidentSearch;
 import com.shivansh.incidentresponder.model.AgentResolution;
 import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.LogAnalysis;
-import lombok.RequiredArgsConstructor;
+import dev.langchain4j.exception.RateLimitException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -43,7 +46,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ResolverService {
 
     /**
@@ -75,6 +77,35 @@ public class ResolverService {
     private final SimilarIncidentSearch similarIncidentSearch;
 
     /**
+     * How long to wait before the single retry of a rate-limited Resolver call.
+     * <p>
+     * <b>Derived from measurement, not picked.</b> Groq's per-minute bucket holds 8,000 tokens
+     * and refills continuously at 8,000/60 = ~133 tokens a second. The deficit inside one event
+     * is {@code analyzerTokens + resolverTokens - 8000}: measured live at 4,715 + 3,585 = 8,300,
+     * a deficit of 300, which Groq itself priced at 2.25 seconds. Against the largest measured
+     * Analyzer call (5,121) the deficit is 706, or 5.3 seconds.
+     * <p>
+     * 15 seconds covers a deficit of ~2,000 tokens - an Analyzer plus Resolver totalling 10,000
+     * against a measured 8,300-8,706. That margin is for longer log dumps and more verbose
+     * retrieved precedent, both of which move the number.
+     * <p>
+     * <b>It is only ever paid on the failure path.</b> A call that fits waits nothing, and after
+     * a cache hit the Analyzer costs zero tokens so the Resolver has the whole bucket and never
+     * reaches this. That is the whole reason the wait lives here rather than as a fixed delay in
+     * {@code IncidentService.analyzeAndRecord}, which is shared with the synchronous REST
+     * endpoint and would pay the delay on every request whether it needed it or not.
+     */
+    private final Duration rateLimitBackoff;
+
+    public ResolverService(ResolverAgent resolverAgent,
+                           SimilarIncidentSearch similarIncidentSearch,
+                           @Value("${incident.resolver.rate-limit-backoff:15s}") Duration rateLimitBackoff) {
+        this.resolverAgent = resolverAgent;
+        this.similarIncidentSearch = similarIncidentSearch;
+        this.rateLimitBackoff = rateLimitBackoff;
+    }
+
+    /**
      * @param analysis a finished diagnosis, straight from the Analyzer
      * @return the recommendation, or {@code null} when the agent could not produce a usable
      *         one. Null rather than an empty {@link AgentResolution} because the two mean
@@ -86,9 +117,7 @@ public class ResolverService {
 
         ResolverOutput output;
         try {
-            output = resolverAgent.resolve(
-                    ResolverPromptText.analysis(analysis),
-                    ResolverPromptText.pastIncidents(matches));
+            output = callAgent(analysis, matches);
         } catch (RuntimeException e) {
             // Deliberately not rethrown. See the class javadoc: the diagnosis is worth more
             // than the recommendation, and it has already been paid for.
@@ -101,6 +130,92 @@ public class ResolverService {
         }
 
         return toResolution(output, analysis, suppliedIds(matches));
+    }
+
+    /**
+     * One call, retried once and only when the failure was a rate limit.
+     *
+     * <h2>Why this exists</h2>
+     * A single incident is two model calls back to back, and together they do not fit in the
+     * per-minute bucket. The Analyzer goes first and takes the larger share, so <b>the Resolver
+     * is always the call that gets refused</b> - and because this class absorbs its own
+     * failures, the symptom is an incident stored with a diagnosis and no recommendation, with
+     * nothing anywhere reporting a problem. Confirmed live; see {@code docs/caching.md}.
+     *
+     * <h2>Why LangChain4j's own retry does not cover it</h2>
+     * It retries rate limits already - {@code RetryUtils.DEFAULT_RETRY_POLICY} is
+     * {@code maxRetries=2, delayMillis=500, backoffExp=1.5}, so it waits roughly 500ms then
+     * 750ms and gives up after about 1.25 seconds. The measured requirement was 2.25. It was
+     * close and it lost, and <b>the policy is not configurable</b>: {@code OpenAiChatModel}'s
+     * builder exposes no retry knob in 1.18.1, nor does the Spring starter. So the wait has to
+     * be here.
+     *
+     * <h2>Why one retry</h2>
+     * The same reasoning the Kafka consumer and the baseline harness already settled on. A
+     * per-minute limit clears in seconds, so one delayed attempt recovers it. A per-day limit
+     * refuses every attempt however many are allowed, and each one costs wall clock on a thread
+     * that is holding a Kafka partition.
+     */
+    private ResolverOutput callAgent(LogAnalysis analysis, List<SimilarIncident> matches) {
+        String analysisText = ResolverPromptText.analysis(analysis);
+        String precedentText = ResolverPromptText.pastIncidents(matches);
+        try {
+            return resolverAgent.resolve(analysisText, precedentText);
+        } catch (RuntimeException first) {
+            if (!isRateLimit(first)) {
+                throw first;
+            }
+            log.warn("Resolver was rate limited - the Analyzer call for this same incident has "
+                            + "already spent most of the per-minute budget. Waiting {}s and retrying once",
+                    rateLimitBackoff.toSeconds());
+            if (!sleep(rateLimitBackoff)) {
+                throw first;
+            }
+            return resolverAgent.resolve(analysisText, precedentText);
+        }
+    }
+
+    /**
+     * Matches the exception type and, as a fallback, the message.
+     * <p>
+     * The type alone would be enough today - LangChain4j maps a 429 to
+     * {@link RateLimitException} at the model boundary, which is what the live run threw. The
+     * message check covers the case where something between here and there wraps it, which is
+     * exactly the kind of change a library upgrade makes silently. Getting this wrong in the
+     * false-negative direction costs a resolution; in the false-positive direction it costs one
+     * pointless wait on a call that was going to fail anyway.
+     */
+    private static boolean isRateLimit(Throwable thrown) {
+        for (Throwable cause = thrown; cause != null && cause.getCause() != cause; cause = cause.getCause()) {
+            if (cause instanceof RateLimitException) {
+                return true;
+            }
+            String message = cause.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase(Locale.ROOT);
+                if (lower.contains("429") || lower.contains("rate limit") || lower.contains("rate_limit")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return false if the wait was interrupted, in which case the caller must give up rather
+     *         than retry. An interrupt here means the application is shutting down or the Kafka
+     *         container is stopping the consumer; starting a fresh model call at that moment
+     *         would bill for a result nobody will read.
+     */
+    private static boolean sleep(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting out a Resolver rate limit, giving up the retry");
+            return false;
+        }
     }
 
     private List<SimilarIncident> retrieve(LogAnalysis analysis) {

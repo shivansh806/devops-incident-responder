@@ -74,10 +74,14 @@ returns faster than that.
 The same probe's second call, on identical input, hit the cache: the Analyzer cost nothing, the
 Resolver had the whole bucket, and a recommendation was produced. Numbers in `docs/caching.md`.
 
-**Still open for a cold incident.** The cache only removes the Analyzer call on a *repeat*. A
-first diagnosis of genuinely new logs makes both calls back to back and will still lose its
-resolution — which is what a live incident is. The remaining options are a delay between the two
-agents, smaller prompts, or a paid tier; none is attractive enough to build on one observation.
+**Closed on 2026-08-20 by a rate-limit-aware retry in `ResolverService`**, not by a delay. A
+cold incident now keeps its resolution — measured, see `docs/caching.md`. The retry waits only
+when the call is actually refused, so it costs nothing on a call that fits and nothing at all
+after a cache hit.
+
+A fixed delay between the two agents was the obvious alternative and was rejected: both entry
+points share `IncidentService.analyzeAndRecord`, so it would have slowed `POST /api/analyze`
+too, and it would have been paid on every event including the ones that never needed it.
 
 This is the same arithmetic that paces `AnalyzerBaselineTest` at 65 seconds, and the same
 argument for the Redis cache in the next step - now a much sharper one, given the burst
@@ -136,12 +140,14 @@ and cost minutes of blocked partition.
 | Empty or oversized log dump | `IllegalArgumentException` | **Never retried** → DLT on attempt 1 |
 | Analyzer failed — 429, timeout, bad parse | `AnalysisFailedException` | One retry after 60s, then DLT |
 | Mongo save failed | propagates | One retry after 60s, then DLT |
-| **Resolver failed** | — | **Never reaches the error handler** |
+| Resolver rate limited | — | **Retried once after 15s inside `ResolverService`** |
+| **Resolver failed otherwise** | — | **Never reaches the error handler** |
 
-The last row is the useful one. `ResolverService` catches its own failures and returns null, so
-the incident is stored with a diagnosis and no recommendation — the week 1 shape. **The only
-LLM failure that can reach Kafka's retry machinery is the Analyzer's.** That is existing
-behaviour the consumer inherits, and it halves the retry surface.
+The last two rows are the useful ones. `ResolverService` handles its own rate limits — one wait,
+one retry — and absorbs every other failure by returning null, so the incident is stored with a
+diagnosis and no recommendation, the week 1 shape. **The only LLM failure that can reach Kafka's
+retry machinery is the Analyzer's.** That is existing behaviour the consumer inherits, and it
+halves the retry surface.
 
 A message that cannot be processed is classified as terminal on purpose. Bad JSON parses
 identically on every attempt; retrying it twice costs a minute of blocked partition and changes

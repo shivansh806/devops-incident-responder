@@ -139,8 +139,9 @@ So the obvious reflex, "raise the retry count", would not have worked, and the l
 "add a delay between the two agents", would cost every event several seconds forever. The cache
 removes the second call's competitor entirely, which is a different and better shape of fix.
 
-**What this does not fix.** A *first* diagnosis of genuinely new logs still makes both calls
-back to back and will still lose its resolution. The cache helps a replay, which is exactly the
+**What the cache alone does not fix — since closed separately.** A *first* diagnosis of
+genuinely new logs still makes both calls back to back. That is now handled by a rate-limit
+retry in `ResolverService`; see *The cold-incident case* below. The cache helps a replay, which is exactly the
 demo case and exactly the re-measurement case, and does nothing for a cold incident. That is the
 honest limit of it, and the reason `docs/ingestion.md` keeps the burst listed as open.
 
@@ -157,6 +158,83 @@ is at least firing.
 Two real incidents in Atlas: `6a8584b677cbaf249348bb8f` (no resolution) and
 `6a85851477cbaf249348bb90` (resolved). Both carry no embedding, so neither is indexed and
 neither can turn up as retrieval precedent. Cost was roughly 14,500 tokens.
+
+## The cold-incident case, closed 2026-08-20
+
+The cache rescues a replay. It cannot help a **cold** incident, where both calls are paid back
+to back — and a cold incident is what a real one is. That is now handled in `ResolverService`:
+catch the rate limit, wait once, retry once, and otherwise degrade to null exactly as before.
+
+**Why a wait there rather than a fixed delay between the agents.** Both entry points share
+`IncidentService.analyzeAndRecord`, so a fixed delay would also slow the synchronous
+`POST /api/analyze`, and it would be paid on every event — including every cache hit, where the
+Analyzer costs nothing and the Resolver has the whole bucket anyway. A reactive wait costs
+nothing unless the call is actually refused.
+
+### The number
+
+The bucket is 8,000 tokens refilling at **8,000 ÷ 60 = 133 tokens/second**. The deficit inside
+one event is `analyzer + resolver − 8000`, and the wait is `deficit ÷ 133`.
+
+| Observed | Analyzer used | Resolver requested | Deficit | Groq asked for |
+|---|---|---|---|---|
+| `downstream-timeout.log` | 4,715 | 3,585 | 300 | 2.25s |
+| `thread-deadlock.log` | 4,542 | 3,591 | 133 | 0.9975s |
+| `connection-pool-exhaustion.log` | 4,673 | 3,635 | 308 | 2.31s |
+
+Every row satisfies `deficit ÷ 133 = the wait Groq asked for`, which is what makes the model of
+the limiter trustworthy rather than fitted. **15 seconds** covers a deficit of ~2,000 tokens —
+an Analyzer plus Resolver totalling 10,000 against a measured 8,133–8,308.
+
+### Why LangChain4j's own retry is not enough — and when it is
+
+Its default policy is `maxRetries=2, delayMillis=500, backoffExp=1.5`, so it waits ~500ms then
+~750ms: about **1.25 seconds**, which covers a deficit of roughly **166 tokens**. And the policy
+is not configurable — `OpenAiChatModel`'s builder exposes no retry knob in 1.18.1, nor does the
+Spring starter.
+
+The two runs land either side of that line, which is the cleanest evidence available that the
+threshold is real:
+
+- **`thread-deadlock`, deficit 133** → Groq asked 0.9975s → LangChain4j's 1.25s covered it, and
+  our retry never fired. The resolution survived without us.
+- **`connection-pool-exhaustion`, deficit 308** → Groq asked 2.31s → LangChain4j exhausted its
+  two retries and failed. Ours fired, waited 15s, and the resolution was produced.
+
+### The measured result
+
+```
+sample           : connection-pool-exhaustion.log (5,470 chars), cache DISABLED
+rate limited     : YES - a 429 was returned
+lc4j retried     : YES (its own 1.25s policy)  -> failed
+OUR retry fired  : YES - ResolverService waited
+resolution       : PRESENT - rescued
+took             : 23,711ms
+decidingEvidence : "processRefund acquired a connection in 4871ms (slow-acquire threshold
+                    1000ms), which matches INC-2103's case and not INC-2331's."
+```
+
+23.7s is the predicted shape: ~3.5s Analyzer, ~2s of refused attempts, the 15s wait, ~3s for the
+Resolver that succeeds.
+
+### A measurement bug worth recording
+
+The first run of this probe reported **"rate limited: no"** on a run whose log plainly contained
+a 429. The probe watched only this application's logger, and LangChain4j reports its own retries
+under `dev.langchain4j.internal.RetryUtils`. It also happened to pick a small sample, so the
+deficit was inside LangChain4j's own 1.25s and the resolution survived without our code running
+at all.
+
+Both together would have marked the fix verified on a run where it never executed. The probe now
+attaches to the root logger and distinguishes *a 429 happened* from *our retry ran*, and it
+defaults to the largest sample so the deficit is big enough to need us.
+
+### What is still not covered
+
+The arithmetic assumes calls are **serialised**. Kafka guarantees that — `max-poll-records: 1`,
+one consumer — but two concurrent `POST /api/analyze` requests would interleave and nothing
+serialises them. The retry degrades gracefully there rather than correctly: it will wait and
+retry, which usually works, but the deficit could exceed what 15 seconds buys back.
 
 ## Status
 

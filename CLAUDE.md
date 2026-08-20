@@ -116,6 +116,16 @@ not blending.
   without measuring anything.
 - Fails open in both directions — a dead Redis is a miss, never a failed diagnosis.
 
+**Week 3, step 3b** — rate-limit retry in `ResolverService`, closing the burst.
+- Waits **only when refused**, so a call that fits and any cache hit pay nothing.
+- 15s, derived: bucket 8,000 refilling at 133/s, deficit = analyzer + resolver −
+  8000. Measured deficits 133–308; every one matched Groq's own stated wait, which
+  is what makes the arithmetic trustworthy rather than fitted.
+- **LangChain4j's own retry covers ~166 tokens of deficit and no more** (`maxRetries=2,
+  delayMillis=500, backoffExp=1.5` ≈ 1.25s) and is **not configurable** — no retry
+  knob on `OpenAiChatModel`'s builder in 1.18.1 nor on the starter. Two runs landed
+  either side of that threshold, which is how the line was established.
+
 **Next:** Week 3, step 4 — WebSocket.
 
 ## Design decisions (do not undo without asking)
@@ -253,15 +263,14 @@ if it matters.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
-- **A single event's two calls exceed the whole per-minute bucket. CONFIRMED LIVE
-  2026-08-19.** Groq's own refusal: *"Limit 8000, Used 4715, Requested 3585"*. The
-  incident stored with `resolution: NULL`, the silent symptom as predicted.
-  **LangChain4j retried twice internally and still failed** — a token bucket needs
-  wall-clock seconds, so raising the retry count is not the fix. The cache removes
-  it on a *repeat* (verified: same input, Analyzer free, Resolver succeeded), but
-  **a first diagnosis of new logs still loses its resolution**, and that is what a
-  real incident is. Remaining options are a delay between the agents, smaller
-  prompts, or a paid tier. See docs/caching.md.
+- ~~**A single event's two calls exceed the whole per-minute bucket.**~~ **CLOSED
+  2026-08-20.** The burst is real and stays real — Groq's own refusals, three
+  samples, deficits of 133/300/308 tokens against an 8,000 ceiling — but it no
+  longer costs a resolution. `ResolverService` catches the rate limit, waits 15s
+  and retries once; measured live, a cold incident now keeps its recommendation.
+  **A fixed delay between the agents was rejected**: both entry points share
+  `analyzeAndRecord`, so it would have slowed `POST /api/analyze` too and been paid
+  on every event including cache hits that never needed it. See docs/caching.md.
 - **The measurement debt: baseline.md and resolver.md both need full re-runs.**
   ~41,000 tokens for one 8-sample Analyzer run (3 runs to settle a judgement field),
   ~38,000 for the 8-observation Resolver set. That is more than a day. Deliberately

@@ -88,6 +88,13 @@ class ResolverBaselineTest {
     private static final long PACING_MILLIS = 65_000;
 
     /**
+     * Matches the production default in {@code application.yml}. Paid only if a call is actually
+     * refused, which at 65s pacing should not happen - if it does, the retry keeps the
+     * observation rather than turning it into a null that reads like a model failure.
+     */
+    private static final java.time.Duration RATE_LIMIT_BACKOFF = java.time.Duration.ofSeconds(15);
+
+    /**
      * The diagnosis, frozen. Approximates what the Analyzer produced on the live run: it
      * picked the acquisition-versus-execution line as {@code firstOccurrence}, which is both
      * the earliest sign of trouble and the discriminator itself.
@@ -127,7 +134,11 @@ class ResolverBaselineTest {
     void measureTheResolverOnOneFixedCase() throws IOException {
         SimilarIncidentSearch frozenSearch = Mockito.mock(SimilarIncidentSearch.class);
         Mockito.when(frozenSearch.findSimilar(Mockito.any(), Mockito.anyInt())).thenReturn(candidates());
-        ResolverService resolverService = new ResolverService(resolverAgent, frozenSearch);
+        // The real backoff, not zero: this harness makes real calls, and a rate-limited run
+        // that silently reported a null resolution would be recorded as the model declining to
+        // answer. That is exactly the confound the pacing above exists to avoid.
+        ResolverService resolverService =
+                new ResolverService(resolverAgent, frozenSearch, RATE_LIMIT_BACKOFF);
 
         List<AgentResolution> results = new ArrayList<>();
         for (int run = 1; run <= RUNS; run++) {
