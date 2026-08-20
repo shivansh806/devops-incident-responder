@@ -11,9 +11,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The simulator only exists under its own profile, so no other test ever constructs it - which
  * means its constructor injection is unproven by everything else in the suite. In particular
- * {@code interval} is a {@link java.time.Duration} bound from the string {@code "40s"}, and a
- * conversion failure there is a startup failure that would only ever appear on the one run
+ * {@code interval} is a {@link java.time.Duration} bound from a string in {@code application.yml},
+ * and a conversion failure there is a startup failure that would only ever appear on the one run
  * someone was about to demo.
+ * <p>
+ * The value is deliberately not named here. It has moved three times - 40s, then 90s, then 120s
+ * as the model and then the limiter's actual behaviour were measured - and a test javadoc that
+ * quotes it goes stale silently while still reading as authoritative. What is being checked is
+ * that whatever is configured binds. The number and its derivation live in {@code application.yml}
+ * and {@code docs/ingestion.md}.
  * <p>
  * {@code count=0} so the emit loop does nothing: this checks wiring, not behaviour, and must
  * not try to reach a broker.

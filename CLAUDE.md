@@ -143,6 +143,31 @@ not blending.
   arrival.
 - 194 tests pass offline, up from 147. Read docs/websocket.md before changing the frame shape,
   the connect sequence or the origin list.
+- **Live verified 2026-08-20: 4 incidents end to end.** 3 fully resolved, 1 degraded to a
+  stored diagnosis with no resolution after the retry also hit the limit. Nothing crashed.
+  WebSocket delivered 10 history frames on connect and a live incident frame from
+  `POST /api/analyze`. The degraded one is the designed behaviour, now visible on the socket
+  for the first time rather than only in a log line.
+
+**2026-08-20 — the simulator interval was on the boundary, 90s → 120s.** The same live run
+showed back-to-back events still colliding at 90s spacing.
+- **Per-event token cost is not what binds, and computing from it would have made this worse.**
+  8,000 refills at 133/s, so a 9,800-token event needs 73.5s and a *measured* 8,308-token one
+  needs 62s. Both are below the 90s that failed.
+- **`~9,800 per event` was never measured.** It is 5,121 (probe) + ~4,700 (estimate). The three
+  events actually measured in docs/caching.md cost **8,133 / 8,300 / 8,308**, with the Resolver
+  at **~3,600**, not 4,700. The constant stays 9,800 as a deliberate over-estimate for the cost
+  warning; its javadoc no longer claims the Resolver half is measured.
+- **What binds is the 60-second window plus the 15s retry.** Groq counts tokens in the trailing
+  60s. A cold event's Resolver is refused, waits 15s and retries, so the event's **last billed
+  call lands ~25-35s after the event starts** and the next event is only clear at
+  **85-95s**. 90s sits inside that band, which is exactly what "3 of 4 passed" looks like.
+- **120s** gives ~30s of margin on a boundary that measured as marginal. It costs nothing: the
+  daily budget already caps this at ~10 events, so the interval never was the limit on how much
+  can be run in a day.
+- **One run, and the sliding-window model is inferred rather than measured.** It is the model
+  that fits 3-of-4 at 90s; it has not been confirmed by a run at 120s. Treat a future collision
+  at 120s as evidence against the model, not as a reason to keep adding seconds.
 
 **Next:** Week 4 — React + Vite + Tailwind frontend.
 
@@ -311,11 +336,17 @@ if it matters.
   if the Resolver turns out to need one.
 - Watch the OTHER rate on the 8-sample baseline. A high rate means the
   vocabulary is too small — grow it from that evidence, not by guessing.
-- ~~**A single event's two calls exceed the whole per-minute bucket.**~~ **CLOSED
-  2026-08-20.** The burst is real and stays real — Groq's own refusals, three
-  samples, deficits of 133/300/308 tokens against an 8,000 ceiling — but it no
-  longer costs a resolution. `ResolverService` catches the rate limit, waits 15s
-  and retries once; measured live, a cold incident now keeps its recommendation.
+- **A single event's two calls exceed the whole per-minute bucket.** **Reopened
+  2026-08-20, having been marked CLOSED the same day.** The burst is real and stays
+  real — Groq's own refusals, three samples, deficits of 133/300/308 tokens against
+  an 8,000 ceiling. `ResolverService` catches the rate limit, waits 15s and retries
+  once, and on three probe events that recovered the recommendation every time — which
+  got it written up as closed. **The first full live run then lost 1 resolution in 4:
+  the retry was refused too.** Three agreeing observations again, and a fourth that
+  killed the conclusion; this file has now caught that exact pattern twice. The retry
+  raises the odds and does not guarantee the outcome. The 90s → 120s interval change
+  is aimed at the residual — a retry starting from a bucket the previous event has not
+  finished vacating has less headroom than one starting full.
   **A fixed delay between the agents was rejected**: both entry points share
   `analyzeAndRecord`, so it would have slowed `POST /api/analyze` too and been paid
   on every event including cache hits that never needed it. See docs/caching.md.

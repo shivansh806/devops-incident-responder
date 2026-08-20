@@ -178,14 +178,23 @@ incident:
     # Three, not eight, because each event costs ~9,800 Groq tokens against 100,000 per day.
     # A full eight-scenario run is ~78,000 - most of the daily budget. See IncidentSimulator.
     count: 3
-    # Was 40s, sized for a 12,000 tokens-per-minute ceiling and a ~6,000 token event. On
-    # openai/gpt-oss-120b the ceiling is 8,000 and an event is ~9,800 (Analyzer 5,121
-    # measured, Resolver ~4,700), so the bucket refills at ~133 tokens/second and one event
-    # needs ~75 seconds of refill. 90s leaves headroom.
+    # 120s, and NOT derived from tokens per event. That calculation says 62-74s (8,000 refilling
+    # at 133/s against an event of 8,308 measured or 9,800 estimated) and it is wrong - the live
+    # run on 2026-08-20 collided at 90s, well above both figures. Per-event cost is not what
+    # binds here.
     #
-    # NOTE this does not fix the harder problem: an event's two calls run back to back and
-    # together exceed the 8,000 bucket, so the Resolver call can 429 within a single event no
-    # matter how far apart events are. ResolverService absorbs that as a null resolution, so
-    # the symptom is incidents stored with a diagnosis and no recommendation. See
-    # docs/ingestion.md - the Redis cache is the fix, not a longer interval.
-    interval: 90s
+    # What binds is Groq's 60-SECOND WINDOW plus our own retry. A cold event's Resolver is
+    # refused, waits 15s and retries, so the event's LAST BILLED CALL lands ~25-35s after the
+    # event began (analyzer latency + the 15s backoff). The next event is only clear once that
+    # call has aged out of the trailing 60s: 85-95s. 90s sat inside that band, which is exactly
+    # what "3 of 4 events resolved, 1 degraded" looks like. 120s puts ~30s of margin on it.
+    #
+    # It costs nothing to be generous. The DAILY budget already caps this at ~10 events, so the
+    # interval has never been the limit on how much can be run in a day - only on whether an
+    # event pays for its own recommendation.
+    #
+    # NOTE this still does not fix the harder problem: an event's two calls run back to back and
+    # together exceed the 8,000 bucket, so the Resolver 429s within a single event no matter how
+    # far apart events are. That is what ResolverService's 15s retry is for, and a full bucket is
+    # what gives the retry its headroom - which is the whole reason the interval matters at all.
+    interval: 120s

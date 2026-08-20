@@ -49,9 +49,18 @@ import java.util.random.RandomGenerator;
  * which Groq retired. The rise is mostly input: gpt-oss tokenises the same prompt to more
  * tokens, and its reasoning is billed as completion.
  * <p>
- * The interval defaults to 90 seconds for a different limit: <b>8,000</b> tokens per
- * <em>minute</em>, down from 12,000. The bucket refills at ~133 tokens a second, so one
- * ~9,800 token event needs ~75 seconds of refill before the next can run.
+ * The interval defaults to <b>120 seconds</b>, and <b>not</b> because of tokens per event.
+ * That calculation gives 62-75s - 8,000 refilling at ~133 a second against an event of 8,308
+ * measured or 9,800 estimated - and the live run on 2026-08-20 collided at <em>90</em>s, well
+ * above both. Per-event cost is not the binding constraint.
+ * <p>
+ * <b>What binds is Groq's 60-second window plus this pipeline's own retry.</b> A cold event's
+ * Resolver is refused, waits 15s in {@code ResolverService} and retries, so the event's last
+ * billed call lands ~25-35s after the event began. The next event is clear only once that call
+ * has aged out of the trailing 60 seconds: <b>85-95s</b>. 90s sat inside that band, which is
+ * what "3 of 4 events resolved, 1 degraded" looks like. 120s puts ~30s of margin on it, and
+ * costs nothing - the daily budget already caps this at ~10 events, so the interval was never
+ * the limit on how much can run in a day.
  * <p>
  * <b>The interval cannot fix the within-event burst.</b> The two calls run back to back
  * inside {@code IncidentService.analyzeAndRecord}, and 5,121 + 4,700 exceeds the 8,000 bucket
@@ -87,10 +96,15 @@ public class IncidentSimulator implements ApplicationRunner {
             "schemaVersion", 2);
 
     /**
-     * Measured on openai/gpt-oss-120b, not estimated: an Analyzer call is 5,121 tokens
-     * (ModelCandidateProbe) and the Resolver prompt renders to ~4,700. Update this when the
-     * model changes - it is the number the log line reports and the one the interval default
-     * is derived from.
+     * <b>An upper bound, and only half of it is measured.</b> The Analyzer's 5,121 comes from
+     * {@code ModelCandidateProbe}; the Resolver's ~4,700 was an estimate from the rendered
+     * prompt and is the part to distrust. Three events actually measured against the live
+     * limiter cost <b>8,133 / 8,300 / 8,308</b>, with the Resolver at <b>~3,600</b> - see the
+     * table in {@code docs/caching.md}.
+     * <p>
+     * Left at 9,800 deliberately. It feeds a cost warning, where over-estimating is the safe
+     * direction, and nothing derives behaviour from it - the interval default does <em>not</em>,
+     * despite what the old comment here claimed. Update it when the model changes.
      */
     private static final int TOKENS_PER_EVENT = 9_800;
 

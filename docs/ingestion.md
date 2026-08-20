@@ -37,13 +37,62 @@ call measured at **5,121** (input 4,109, output 1,012) plus a Resolver call of r
 | Groq free tier, per day | 100,000 (unconfirmed for this model) | 100,000 |
 | **Events available per day** | **about 10** | about 16 |
 | Groq free tier, per minute | **8,000** | 12,000 |
-| **Minimum sustainable interval** | **~75s** | ~35s |
+| **Minimum sustainable interval** | **120s** (see below) | ~35s |
 
-So the defaults are `count: 3` and `interval: 90s`. A full eight-scenario run is ~78,000 —
+So the defaults are `count: 3` and `interval: 120s`. A full eight-scenario run is ~78,000 —
 most of the daily budget, not half of it.
 
 Two limits, and they fail differently. The per-minute one is what the interval is for; going
 faster earns a 429 with plenty of daily budget left. The per-day one no interval can fix.
+
+### The interval is not derived from tokens per event — that was the mistake
+
+**Updated 2026-08-20, after the first live run of the full pipeline.**
+
+The obvious calculation is `event cost ÷ refill rate`: 8,000 tokens refilling at ~133 a second
+against an event of 9,800 gives 73.5s, and against the largest *measured* event (8,308) it gives
+62s. Both say 90s is comfortable. **The live run collided at 90s anyway** — 4 events, 3 fully
+resolved, 1 degraded to a stored diagnosis with no resolution because the 15s retry was refused
+too.
+
+So per-event cost is not the binding constraint, and computing a new default from it would have
+*lowered* the interval below the one that had just failed.
+
+**What binds is the 60-second window plus this pipeline's own retry.** Groq counts tokens in the
+trailing 60 seconds. A cold event's Resolver is always refused — that is the within-event burst
+above — so it waits 15s and retries, which puts the event's **last billed call ~25–35s after the
+event began** (Analyzer latency plus the backoff). The next event is clear only once that call has
+aged out of the window:
+
+| Analyzer latency | Last billed call at | Next event clear at |
+|---|---|---|
+| 10s | 25s | **85s** |
+| 12s | 27s | **87s** |
+| 15s | 30s | **90s** |
+| 20s | 35s | **95s** |
+
+90s sits inside that band, which is exactly what 3-of-4 looks like: ordinary variance in call
+latency decided each event. **120s** puts ~30s of margin on it and costs nothing — the daily
+budget already caps this at ~10 events, so the interval was never the limit on how much can be
+run in a day, only on whether an event pays for its own recommendation.
+
+**Two caveats, both load-bearing.** This is **one run**, and the sliding-window model is
+*inferred* from it rather than measured — it is the model that fits 3-of-4 at 90s, and no run at
+120s has confirmed it. Treat a collision at 120s as evidence against the model rather than as a
+reason to keep adding seconds. And note what the failure cost: not an error, just an incident
+stored with a diagnosis and no recommendation. Week 3 step 4 is the first thing that makes that
+visible anywhere but a log line.
+
+### `~9,800 tokens per event` is an estimate, and half of it is wrong
+
+Recorded because the figure appears throughout this file and in CLAUDE.md. It is 5,121 (measured
+by `ModelCandidateProbe`) plus **~4,700 for the Resolver, which was read off the rendered prompt
+rather than measured**. The three events measured against the live limiter — the table in
+`docs/caching.md` — cost **8,133 / 8,300 / 8,308**, with the Resolver at **~3,600**.
+
+`IncidentSimulator.TOKENS_PER_EVENT` stays at 9,800 on purpose: it feeds a cost warning, where
+over-estimating is the safe direction, and now that the interval is not derived from it nothing
+depends on its accuracy.
 
 ### The interval cannot fix the within-event burst
 
@@ -74,10 +123,17 @@ returns faster than that.
 The same probe's second call, on identical input, hit the cache: the Analyzer cost nothing, the
 Resolver had the whole bucket, and a recommendation was produced. Numbers in `docs/caching.md`.
 
-**Closed on 2026-08-20 by a rate-limit-aware retry in `ResolverService`**, not by a delay. A
-cold incident now keeps its resolution — measured, see `docs/caching.md`. The retry waits only
-when the call is actually refused, so it costs nothing on a call that fits and nothing at all
-after a cache hit.
+**Largely closed on 2026-08-20 by a rate-limit-aware retry in `ResolverService`**, not by a
+delay. The retry waits only when the call is actually refused, so it costs nothing on a call that
+fits and nothing at all after a cache hit.
+
+**"Largely" is a correction, made the same day.** This paragraph first read *"a cold incident now
+keeps its resolution — measured"*, on three probe events that all recovered. The first full live
+run put **4 events** through the pipeline and **1 of them lost its resolution anyway: the 15s
+retry was refused too.** So the retry raises the odds, it does not guarantee the outcome, and the
+guarantee is what the earlier wording claimed. The residual failure is the one the interval
+change above is aimed at — a retry starting from a bucket the previous event has not finished
+vacating has less headroom than one starting from a full bucket.
 
 A fixed delay between the two agents was the obvious alternative and was rejected: both entry
 points share `IncidentService.analyzeAndRecord`, so it would have slowed `POST /api/analyze`
