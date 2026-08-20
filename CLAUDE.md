@@ -169,7 +169,54 @@ showed back-to-back events still colliding at 90s spacing.
   that fits 3-of-4 at 90s; it has not been confirmed by a run at 120s. Treat a future collision
   at 120s as evidence against the model, not as a reason to keep adding seconds.
 
-**Next:** Week 4 — React + Vite + Tailwind frontend.
+**Week 4, step 1 done — frontend scaffold. No dashboard UI yet.**
+- `frontend/` in this repo, not a second one. React 19 + Vite 8 + Tailwind 4, plain JS.
+  Tailwind 4 needs no `tailwind.config.js` and no postcss config — the whole setup is
+  `@tailwindcss/vite` plus `@import "tailwindcss";`. Don't add the v3 files back.
+- One page. It opens the socket and prints `event.data` **verbatim** — no parsing, on
+  purpose, so the page shows what is actually on the wire including anything unexpected.
+  No reconnect, no REST call, no dashboard.
+
+**CORS does not apply to a WebSocket handshake, and that is the whole of step 1's
+cross-origin story.** The handshake *is* an HTTP GET with `Upgrade: websocket`, so it looks
+like CORS should govern it. It does not: the browser sends `Origin` and then **never checks
+the response for `Access-Control-Allow-Origin`**. No preflight, nothing to allow. So the
+browser will not refuse a cross-origin socket — only the server can, which is exactly why
+Spring's `setAllowedOrigins` on the handler registry is a *separate* mechanism from
+`WebMvcConfigurer#addCorsMappings`, and why week 3 listing port 5173 was already the entire
+fix. **Step 1 changed no backend code.**
+
+- **A Vite dev proxy was declined, and the usual reason for wanting one is wrong here.** It
+  would *not* have removed the need for the allowlist entry: Vite's proxy forwards the
+  client's headers on the upgrade, `Origin: http://localhost:5173` included, and
+  `changeOrigin: true` rewrites `Host`, **not** `Origin`. Spring would still see 5173 and
+  still refuse it without the list. The proxy buys a *relative URL*, not permission.
+  **Reasoned from http-proxy's documented behaviour, not run** — no proxy was configured and
+  no handshake was observed through one. If the proxy is ever adopted, verify that claim
+  first rather than inheriting it.
+- **CORS becomes a real problem at step 2, not now.** The first `fetch` to
+  `http://localhost:8080/api/analyze` *is* subject to CORS and *will* be blocked. That is the
+  point to choose between server-side `addCorsMappings` and the proxy — and the proxy's
+  genuine argument is that it fixes both in one place and makes every URL origin-relative,
+  which is also what production behind a single origin wants. `VITE_WS_URL` is the switch
+  point; it is one line either way.
+- **`strictPort: true` is load-bearing, not tidiness.** If 5173 is busy Vite's normal
+  behaviour is to move to 5174 and mention it in one line of startup output. 5174 is not in
+  the allowlist, so the page would load fine and fail only at the handshake — the same
+  failure shape docs/websocket.md warns about, reading as a broken backend rather than a
+  changed port. Fail at startup instead.
+- **StrictMode mounts the effect twice and that opens two sockets.** Without the cleanup you
+  get two live connections and every frame twice, which is indistinguishable from a server
+  bug. The effect closes its socket on teardown and guards against late callbacks.
+
+**Status: builds clean, not yet run against a live backend.** `npm run build` passes. **No
+handshake has actually been observed from 5173** — the app is started by hand, so the join
+between this page and the running socket is exactly the segment that is untested, the same
+gap docs/websocket.md records for the full Kafka path. On a fresh database the first thing
+the page shows is `connected` plus ten `history` frames of seeded `INC-` incidents with null
+`resolution`. That is expected, not a bug.
+
+**Next:** Week 4, step 2 — the dashboard UI.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -319,6 +366,13 @@ there rather than being surprised by it; the `-q` quantized model is the lever
 if it matters.
 
 ## Known decisions to revisit
+- **Week 4 step 2: the first `fetch` to the API is a real CORS problem.** Unlike the socket,
+  an XHR to `http://localhost:8080` from `:5173` *is* governed by CORS and will be blocked.
+  Two fixes, and they are not equivalent: server-side `addCorsMappings` keeps the direct
+  connection and adds a second origin list to keep in sync with the WebSocket one, while a
+  Vite proxy makes every URL origin-relative and covers both — but does **not** remove the
+  WebSocket allowlist entry, because it forwards `Origin` unchanged. Decide once, for both
+  transports, rather than reaching for whichever is nearer at the time.
 - ~~Week 3: Kafka consumer needs its own ObjectMapper without the
   unknown-property WARN handler (would flood logs at event rate)~~
   **Settled in step 2, conclusion kept and reasoning replaced.** It does get its
