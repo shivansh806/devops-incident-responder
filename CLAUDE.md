@@ -364,26 +364,32 @@ Full reasoning in docs/deployment.md; read it before changing the Dockerfile or 
   construction rather than by conversion behaviour, and `WebSocketConfigTest` pins it including
   the negative. **Dev is untouched** — the `@Value` default still carries 5173.
 
-**Status: the image builds and the bundle is provably inside it. The stack has not been run.**
-`docker compose config` parses, the default `up` still resolves to kafka + redis only,
-`--profile app` to all three, and `INCIDENT_WEBSOCKET_ALLOWED_ORIGINS` renders as an explicit
-`""`. The image builds through all three stages — **358MB**, of which the jar is 265MB.
-- **The bundle check is the one worth stating precisely**, because "I copied `dist/` into
-  `static/`" and "Spring will serve it" are different claims and only the second matters. Inside
-  the packaged jar the files are at `BOOT-INF/classes/static/index.html` and
-  `BOOT-INF/classes/static/assets/…`, and `BOOT-INF/classes/` **is** the classpath root of a
-  Boot fat jar — so that is exactly where `classpath:/static/**` resolves. Asset hashes match
-  the local `npm run build`, so the Node stage built this source and not something stale.
+**Status: verified live 2026-08-20. `docker compose --profile app up -d --wait --build`, then
+http://localhost:8080 — page loads, socket connects, backlog replays.**
+- **The empty allowlist works, and that was the open one.** Spring falls back to same-origin
+  exactly as reasoned. Note it took both halves to close: `WebSocketConfigTest` proves
+  `effectiveOrigins()` hands Spring an empty array, and this run proves what Spring *does* with
+  one. Neither established it alone — the test could have passed while Spring rejected the
+  empty case, which is precisely the failure that was being guarded against.
+- **One origin is now measured, not just structural.** The page, `/api/**` and `/ws/incidents`
+  all come from one process on one port, with no proxy and no CORS configuration anywhere.
+- **The backlog replaying also proves Atlas is reachable from inside the container** — the
+  connect path runs a Mongo query, so `MONGODB_URI` arriving as container environment rather
+  than through spring-dotenv's `.env` read works.
+- **The image builds through all three stages — 358MB, of which the jar is 265MB** — and the
+  bundle is at `BOOT-INF/classes/static/`, the classpath root of a Boot fat jar, which is
+  exactly where `classpath:/static/**` resolves. Asset hashes match the local `npm run build`.
   `index.html` references `/assets/…` **root-absolute**, correct because the bundle is served
   from the application root; a Vite `base` other than `/` would break here and is the first
   thing to check if a future build 404s on its own assets.
-- **Not verified: the container serving the bundle, the same-origin socket with an empty
-  allowlist, and Kafka reachable at `kafka:29092` from the app container.** All three need the
-  app actually started, which is done by hand here, and real Atlas and Groq credentials. The
-  socket one is the interesting one — it is the first time the allowlist runs *empty*, and
-  `WebSocketConfigTest` covers the array `effectiveOrigins()` produces while nothing yet covers
-  Spring's behaviour when handed that array. If it is wrong the symptom is a dashboard that
-  loads and then cannot open its socket.
+
+**Still not verified: Kafka reachable at `kafka:29092` from the app container.** A page load, a
+socket and a backlog do not touch it, and **an unreachable broker would not have prevented any
+of them** — Spring Kafka's listener container retries in the background and the context comes up
+regardless. So this run is not evidence either way. It costs ~9,800 tokens to settle, by running
+the `simulator` profile against the containerised app and watching one event land on the socket.
+The address itself is inherited from week 3 rather than new, which is the reason for thinking it
+is right, not a reason to record it as checked.
 
 **Next:** Week 4, step 4 — record the demo, on a second run so the cache makes it free.
 

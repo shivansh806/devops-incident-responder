@@ -180,9 +180,10 @@ On the host the app reads `.env` through `spring-dotenv`. In the container there
 read and the same values arrive as ordinary environment variables, which the existing
 `${MONGODB_URI:...}` placeholders already resolve. No application change was needed for that.
 
-## Status
+## Status: verified live 2026-08-20
 
-**The image builds and the bundle is provably inside it. The stack has not been run.**
+`docker compose --profile app up -d --wait --build`, then http://localhost:8080. The page
+loads, the socket connects, and the backlog replays.
 
 | Check | Status |
 |---|---|
@@ -190,15 +191,29 @@ read and the same values arrive as ordinary environment variables, which the exi
 | Default `up` resolves to kafka + redis only | verified |
 | `--profile app` resolves to all three | verified |
 | `INCIDENT_WEBSOCKET_ALLOWED_ORIGINS` renders as an explicit `""` | verified |
-| Image builds through all three stages | verified — 358MB |
-| Bundle lands where Spring will look for it | verified — see below |
-| Container starts and serves the bundle | **not verified** |
-| Same-origin WebSocket with an empty allowlist | **not verified** |
+| Image builds through all three stages | verified — 358MB, jar 265MB |
+| Bundle lands where Spring looks for it | verified — see below |
+| Container serves the bundle | **verified live** |
+| Same-origin WebSocket with an empty allowlist | **verified live** |
+| Atlas reachable from inside the container | **verified live** |
 | Kafka reachable at `kafka:29092` from the app container | **not verified** |
 
-The bundle check is the one worth spelling out, because "I copied `dist/` into `static/`" and
-"Spring will serve it" are different claims and only the second one matters. Inside the packaged
-jar:
+### The empty allowlist, and why it took two things to close
+
+Spring falls back to same-origin exactly as reasoned, so the container needs no origin entries
+at all.
+
+Worth noting how that was established, because neither half was sufficient.
+`WebSocketConfigTest` proves `effectiveOrigins()` hands Spring an **empty array** rather than a
+one-element array holding `""`. This run proves what Spring **does** when handed an empty array.
+The test could have passed while Spring rejected the empty case — which is the exact failure
+being guarded against, a dashboard that loads and then cannot open its socket. Only the pair
+rules it out. Same shape as `IncidentStreamTest`'s argument in docs/websocket.md: the join is
+the thing neither side could assert alone.
+
+### The bundle
+
+Inside the packaged jar:
 
 ```
 BOOT-INF/classes/static/index.html
@@ -206,18 +221,27 @@ BOOT-INF/classes/static/assets/index-DgBOFf0I.css
 BOOT-INF/classes/static/assets/index-Brd646Mh.js
 ```
 
-`BOOT-INF/classes/` **is** the classpath root of a Spring Boot fat jar, so that is exactly where
-`classpath:/static/**` resolves. The asset hashes match the local `npm run build`, which
-confirms the Node stage built this source rather than something stale. `index.html` references
-`/assets/index-*.js` **root-absolute**, which is correct precisely because the bundle is served
-from the application root — a `base` other than `/` would break here and is the thing to check
-first if a future build 404s on its own assets.
+`BOOT-INF/classes/` **is** the classpath root of a Boot fat jar, so that is where
+`classpath:/static/**` resolves. The asset hashes match the local `npm run build`, confirming
+the Node stage built this source rather than something stale, and `index.html` references
+`/assets/…` **root-absolute** — correct because the bundle is served from the application root.
+A Vite `base` other than `/` would break here and is the first thing to check if a future build
+404s on its own assets.
 
-Of the 358MB, the jar is 265MB — the embedding model dominates, as the cost note predicted.
+### Atlas
 
-**Why the last three are not verified here.** Running them means starting the Spring Boot
-application, and this project's standing rule is that the app is started by hand. They also need
-real Atlas and Groq credentials. The WebSocket one is the interesting one: it is the first time
-the allowlist runs **empty**, `WebSocketConfigTest` covers the array `effectiveOrigins()`
-produces, and nothing yet covers Spring's behaviour when handed that array. If it is wrong, the
-symptom is a dashboard that loads and then cannot open its socket.
+The backlog replaying is the evidence: the connect path runs a Mongo query against the seeded
+corpus. So `MONGODB_URI` arriving as ordinary container environment — rather than through
+spring-dotenv reading a `.env` file that is not in the image — works.
+
+### Kafka is still open, and this run is not evidence about it
+
+A page load, a socket and a backlog replay do not touch the broker. More to the point, **an
+unreachable broker would not have prevented any of them**: Spring Kafka's listener container
+retries in the background and the application context comes up regardless. So a green run here
+says nothing either way.
+
+Settling it costs about 9,800 tokens — run the `simulator` profile against the containerised app
+and watch one event finish and land on the socket. The reason for expecting it to work is that
+`kafka:29092` was advertised from week 3 step 1 and is not new in this change. That is a reason
+to expect success, not a substitute for observing it.
