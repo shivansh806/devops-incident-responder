@@ -117,6 +117,13 @@ separate hostname — the proxy stops applying and real CORS config is needed. T
 deferring is that it would then be written against the actual origins rather than against
 `localhost` placeholders. `VITE_WS_URL` is the switch point for the socket half.
 
+**Step 3 made the premise real rather than hypothetical.** The container topology in
+docs/deployment.md serves the bundle and the API from one Spring process, so `/api/analyze`
+resolves with no proxy and no configuration — which is what the relative URLs here were chosen
+for. The two topologies now differ in exactly one environment variable: the container sets
+`INCIDENT_WEBSOCKET_ALLOWED_ORIGINS` empty and falls back to Spring's same-origin rule, while
+development keeps `5173` in the `@Value` default for the proxy's sake.
+
 ## What the dashboard has to get right
 
 Three rules from the contract, all of them things a naive client gets wrong.

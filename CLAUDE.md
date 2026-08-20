@@ -305,7 +305,87 @@ failed at the `OPTIONS`.
   that the form's own incident arrives twice — HTTP response and frame — which is the easy
   case and shares a code path with the hard one without proving it.
 
-**Next:** Week 4, step 3 — Docker image serving the built bundle and the API from one origin.
+**Week 4, step 3 done — Docker Compose for the whole stack. One origin.**
+Full reasoning in docs/deployment.md; read it before changing the Dockerfile or the profile.
+
+- **The development loop is unchanged, and that was a design constraint.** `docker compose up
+  -d --wait` still brings up Kafka and Redis only, app in IntelliJ. The whole stack is behind a
+  profile: `docker compose --profile app up -d --wait --build`, then http://localhost:8080.
+  Without the profile the app service would take 8080 every time Kafka came up and collide with
+  the IntelliJ instance.
+- **Three build stages** — `node:22-alpine` builds the bundle, `maven:3.9-eclipse-temurin-21`
+  builds the jar with the bundle inside it, `eclipse-temurin:21-jre` runs it. Node, Maven,
+  `node_modules` and `~/.m2` never ship. **Manifests are copied before sources in both build
+  stages**: editing `App.jsx` must not re-run `npm ci`, and editing a Java file must not
+  re-resolve ~200MB of embedding jars.
+- **The build needs no working local toolchain.** `mvn` is not on PATH here and `JAVA_HOME` is
+  unset; Maven runs inside the stage. The image builds on a machine that cannot build the
+  project locally.
+- **`-DskipTests`, deliberately, and not `-Dmaven.test.skip`.** The image build is not the test
+  gate — `mvn test` is, and it runs offline. But `-DskipTests` still *compiles* test sources, so
+  a test that does not compile fails the image build; `-Dmaven.test.skip=true` would not.
+- **The bundle is served by Spring, not by nginx.** `dist/` is copied into
+  `src/main/resources/static/` at build time and Spring Boot serves `classpath:/static/**` with
+  no configuration. That is what makes one origin **structural rather than arranged** — the same
+  process that answers `/api/analyze` and `/ws/incidents` hands out the page calling them, so
+  there is no second server whose config could drift. nginx was declined: a second container and
+  a second proxy config that would have to replicate the Vite proxy, upgrade headers included.
+- **No SPA fallback exists.** A deep link to a client-side route would 404 — Spring would look
+  for a file. The dashboard has no router so it cannot bite today; adding one means adding a
+  forwarding controller **in the same change**.
+- **`.env` is the first line of `.dockerignore` and that is load-bearing.** Compose injects
+  `GROQ_API_KEY` and `MONGODB_URI` as run-time environment via `env_file`. A secret copied into
+  an image *layer* stays readable in that layer even if a later one deletes it. On the host the
+  app reads `.env` through spring-dotenv; in the container the same values arrive as ordinary
+  env vars, which the existing `${MONGODB_URI:...}` placeholders already resolve. No application
+  change was needed.
+- **Week 3 had already provisioned the container addresses.** The app talks to `kafka:29092` and
+  `redis:6379` with no broker change, because `KAFKA_ADVERTISED_LISTENERS` has carried
+  `PLAINTEXT://kafka:29092` since step 1, commented "containers on this network (week 4)". A
+  client fetches metadata once and then reconnects to whatever was advertised, so that address
+  had to be right before anything used it — it could not be bolted on now.
+
+**The WebSocket allowlist is EMPTY in this topology, and empty is the setting.**
+- Browser loads `http://localhost:8080` and opens a socket back to it. Origin equals target.
+  Spring's rule with no configured origins is same-origin only — correct here, and **stricter**
+  than any list that could be written.
+- **Listing `http://localhost:8080` explicitly would be worse than empty, not equivalent.** It
+  breaks the moment the app is reached as `127.0.0.1:8080` or over a LAN address; the
+  same-origin default follows whatever host served the page, a literal string cannot.
+- **Shipping the dev ports would be the exact failure `addCorsMappings` was rejected for** —
+  dead origin config that outlives its reason and gets widened by someone who cannot tell what
+  it is for.
+- **The trap, and why there is now code for it:** `INCIDENT_WEBSOCKET_ALLOWED_ORIGINS=`
+  converting to `[""]` rather than `[]` would be a **non-empty** allowlist holding an origin no
+  browser ever sends, so Spring would not fall back to same-origin — it would compare every
+  `Origin` against `""` and refuse all of them, **same-origin included**. The dashboard would
+  load and then fail to open its socket, reading as a broken backend.
+  `WebSocketConfig.effectiveOrigins()` filters blanks so the empty case is reached by
+  construction rather than by conversion behaviour, and `WebSocketConfigTest` pins it including
+  the negative. **Dev is untouched** — the `@Value` default still carries 5173.
+
+**Status: the image builds and the bundle is provably inside it. The stack has not been run.**
+`docker compose config` parses, the default `up` still resolves to kafka + redis only,
+`--profile app` to all three, and `INCIDENT_WEBSOCKET_ALLOWED_ORIGINS` renders as an explicit
+`""`. The image builds through all three stages — **358MB**, of which the jar is 265MB.
+- **The bundle check is the one worth stating precisely**, because "I copied `dist/` into
+  `static/`" and "Spring will serve it" are different claims and only the second matters. Inside
+  the packaged jar the files are at `BOOT-INF/classes/static/index.html` and
+  `BOOT-INF/classes/static/assets/…`, and `BOOT-INF/classes/` **is** the classpath root of a
+  Boot fat jar — so that is exactly where `classpath:/static/**` resolves. Asset hashes match
+  the local `npm run build`, so the Node stage built this source and not something stale.
+  `index.html` references `/assets/…` **root-absolute**, correct because the bundle is served
+  from the application root; a Vite `base` other than `/` would break here and is the first
+  thing to check if a future build 404s on its own assets.
+- **Not verified: the container serving the bundle, the same-origin socket with an empty
+  allowlist, and Kafka reachable at `kafka:29092` from the app container.** All three need the
+  app actually started, which is done by hand here, and real Atlas and Groq credentials. The
+  socket one is the interesting one — it is the first time the allowlist runs *empty*, and
+  `WebSocketConfigTest` covers the array `effectiveOrigins()` produces while nothing yet covers
+  Spring's behaviour when handed that array. If it is wrong the symptom is a dashboard that
+  loads and then cannot open its socket.
+
+**Next:** Week 4, step 4 — record the demo, on a second run so the cache makes it free.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native

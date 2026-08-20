@@ -87,6 +87,76 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---------------------------------------------------------------------------
+  # The application, bundle included. Behind the 'app' profile ON PURPOSE.
+  #
+  #   docker compose up -d --wait                  Kafka + Redis only, unchanged.
+  #                                                The app runs in IntelliJ as always.
+  #   docker compose --profile app up -d --wait    the whole stack, one origin on 8080.
+  #
+  # Without the profile this service would take port 8080 every time Kafka came up and
+  # collide with the IntelliJ instance - so the default 'up' deliberately does not start
+  # it, and the daily development loop is exactly what it was in week 3.
+  # ---------------------------------------------------------------------------
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: incident-app
+    ports:
+      # Same 127.0.0.1 discipline as the other two. This one carries the incident corpus
+      # and an unauthenticated WebSocket, so publishing it on every interface would put
+      # the whole diagnosis history on whatever network this laptop is on.
+      - "127.0.0.1:8080:8080"
+
+    # GROQ_API_KEY and MONGODB_URI. Passed as container environment rather than by
+    # copying .env into the image - .dockerignore excludes it, because a secret written
+    # into a layer stays readable in that layer even if a later one deletes it. The app
+    # normally reads .env through spring-dotenv on the host; in a container there is no
+    # file to read and these arrive as ordinary environment variables instead.
+    env_file: .env
+
+    environment:
+      # Container-network addresses, not localhost. This is the payoff for a decision
+      # made in week 3: KAFKA_ADVERTISED_LISTENERS has advertised PLAINTEXT://kafka:29092
+      # since step 1, commented "containers on this network - week 4". A client fetches
+      # metadata once and then reconnects to whatever the broker advertised, so this
+      # address had to already be correct; it could not be bolted on now.
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Empty, and that IS the setting - not an oversight and not a placeholder.
+      #
+      # The bundle and the API are served by this one process, so the browser loads
+      # http://localhost:8080 and opens a socket back to http://localhost:8080. Origin
+      # equals target. Spring's rule with NO configured origins is same-origin only,
+      # which is both correct here and stricter than any list that could be written.
+      #
+      # Listing http://localhost:8080 explicitly would be worse than empty, not the same:
+      # it breaks the moment this is reached as 127.0.0.1:8080 or over a LAN address,
+      # where the same-origin default just follows whatever host served the page. And
+      # shipping the dev ports would be exactly the dead-origin-config failure that
+      # addCorsMappings was rejected for in docs/frontend.md.
+      #
+      # WebSocketConfig.effectiveOrigins filters blanks so this reaches Spring as an
+      # empty array rather than as one origin equal to "" - which would be a NON-empty
+      # allowlist matching nothing and would refuse every connection, same-origin
+      # included. WebSocketConfigTest pins that.
+      INCIDENT_WEBSOCKET_ALLOWED_ORIGINS: ""
+
+    depends_on:
+      # service_healthy, not the default service_started. Both dependencies have real
+      # healthchecks above and Spring Boot fails its Kafka connection at startup, so
+      # waiting for the process to exist rather than to answer is the same ten-second
+      # race docs/infra.md already documents for the host case.
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   kafka-data:
   redis-data:

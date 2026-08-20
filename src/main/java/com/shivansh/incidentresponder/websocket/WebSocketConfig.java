@@ -7,6 +7,9 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * Puts {@link IncidentWebSocketHandler} on a URL.
  *
@@ -43,6 +46,28 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
  * way, which is why {@code websocat} works while DevTools would not have.
  * <p>
  * Override with {@code incident.websocket.allowed-origins} when the frontend moves.
+ *
+ * <h2>An empty list is the correct setting when everything is one origin</h2>
+ * In the container topology (week 4 step 3) the bundle and the API are served by this same
+ * process, so the browser loads {@code http://localhost:8080} and opens a socket back to
+ * {@code http://localhost:8080}. Origin equals target. Spring's rule when <b>no</b> origins are
+ * configured is same-origin only, which is exactly right there and <b>stricter</b> than any
+ * list this class could carry - so the container sets
+ * {@code INCIDENT_WEBSOCKET_ALLOWED_ORIGINS=} and lets the default take over.
+ * <p>
+ * Listing {@code http://localhost:8080} explicitly would be <b>worse than empty</b>, not
+ * equivalent: it breaks the moment the app is reached as {@code 127.0.0.1:8080} or over a LAN
+ * address, where the same-origin default simply follows whatever host served the page. And
+ * leaving the dev ports in a shipped image is the "dead origin config that outlives its reason
+ * and gets widened by someone who cannot tell what it is for" failure that {@code
+ * addCorsMappings} was rejected for in docs/frontend.md.
+ * <p>
+ * <b>Hence {@link #effectiveOrigins()}.</b> "Empty" has to survive a trip through an environment
+ * variable, and a blank value that converted to {@code [""]} rather than {@code []} would be a
+ * <em>non-empty</em> list containing an origin no browser ever sends - so every connection
+ * would be refused, <em>including the same-origin one</em>, and the dashboard would fail
+ * silently in exactly the topology this is meant to serve. Blanks are filtered rather than
+ * trusted, so the empty case is reached by construction instead of by conversion behaviour.
  */
 @Configuration
 @EnableWebSocket
@@ -59,6 +84,22 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(incidentWebSocketHandler, path).setAllowedOrigins(allowedOrigins);
+        registry.addHandler(incidentWebSocketHandler, path).setAllowedOrigins(effectiveOrigins());
+    }
+
+    /**
+     * The configured origins with blanks removed - so a blank or empty property yields a
+     * genuinely empty array and Spring falls back to same-origin, rather than a one-element
+     * array containing {@code ""} that would refuse every connection. See the class javadoc.
+     */
+    String[] effectiveOrigins() {
+        if (allowedOrigins == null) {
+            return new String[0];
+        }
+        return Arrays.stream(allowedOrigins)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toArray(String[]::new);
     }
 }

@@ -1,0 +1,26 @@
+# What must never reach the build context.
+#
+# The first entry is the one that matters: .env holds GROQ_API_KEY and the Atlas
+# connection string. Compose injects those as environment variables at RUN time; baking
+# them into an image LAYER would make them readable by anyone who can pull it, and
+# deleting the file in a later layer would not remove it from the earlier one.
+.env
+.env.*
+
+# Build outputs. Copying a host-built target/ in would let a stale jar win over the one
+# the Maven stage produces, and node_modules is both huge and platform-specific - a
+# Windows-resolved tree is not what node:22-alpine needs.
+target/
+frontend/node_modules/
+frontend/dist/
+
+.git/
+.gitignore
+.idea/
+*.iml
+.vscode/
+
+# Documentation and local scratch. None of it is read by the build, and every file in
+# the context is uploaded to the daemon before the first instruction runs.
+docs/
+*.md
