@@ -209,12 +209,23 @@ fix. **Step 1 changed no backend code.**
   get two live connections and every frame twice, which is indistinguishable from a server
   bug. The effect closes its socket on teardown and guards against late callbacks.
 
-**Status: builds clean, not yet run against a live backend.** `npm run build` passes. **No
-handshake has actually been observed from 5173** — the app is started by hand, so the join
-between this page and the running socket is exactly the segment that is untested, the same
-gap docs/websocket.md records for the full Kafka path. On a fresh database the first thing
-the page shows is `connected` plus ten `history` frames of seeded `INC-` incidents with null
-`resolution`. That is expected, not a bug.
+**Status: verified live 2026-08-20.** `npm run build` passes, and the page connects from
+`http://localhost:5173` to `ws://localhost:8080/ws/incidents` against the backend running in
+IntelliJ. Spring's origin check accepts 5173 and the handshake completes. The join that this
+note previously recorded as untested is now run.
+
+**That also turns the CORS reasoning above from an argument into an observation.** A page on
+one origin opened a socket to another and the browser did not interfere — against a backend
+that has **no CORS configuration at all**: `grep` for `addCorsMappings`, `CorsConfiguration`
+or `@CrossOrigin` across `src/main` returns nothing. Had CORS governed the handshake there
+would have been a preflight to satisfy and an `Access-Control-Allow-Origin` to return, and
+nothing here provides either, so the connection would have failed. It didn't. The claim is
+now measured on this stack rather than merely correct in principle.
+**The proxy claim above is not, and does not inherit this** — no proxy was ever configured,
+so "it forwards `Origin` unchanged" stays reasoned-only.
+
+On a fresh database the first thing the page shows is `connected` plus ten `history` frames
+of seeded `INC-` incidents with null `resolution`. That is expected, not a bug.
 
 **Next:** Week 4, step 2 — the dashboard UI.
 
