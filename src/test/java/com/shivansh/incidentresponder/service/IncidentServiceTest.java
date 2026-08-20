@@ -6,10 +6,12 @@ import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.model.Severity;
 import com.shivansh.incidentresponder.repository.IncidentRepository;
+import com.shivansh.incidentresponder.websocket.IncidentBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class IncidentServiceTest {
@@ -43,6 +46,9 @@ class IncidentServiceTest {
 
     @Mock
     private IncidentRepository incidentRepository;
+
+    @Mock
+    private IncidentBroadcaster broadcaster;
 
     @InjectMocks
     private IncidentService incidentService;
@@ -133,6 +139,36 @@ class IncidentServiceTest {
         // The order is the architecture: the Resolver's input is the Analyzer's output, and
         // it is that value it must be handed - not the raw logs, and not a rebuilt copy.
         then(resolverService).should().resolve(ANALYSIS);
+    }
+
+    @Test
+    void pushesTheStoredIncidentToConnectedDashboards() {
+        given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(ANALYSIS);
+        given(incidentRepository.save(any(Incident.class)))
+                .willAnswer(call -> withId(call.getArgument(0), "651f2c9a4b1d3e0001a2b3c4"));
+
+        incidentService.analyzeAndRecord("HikariPool-1 timed out", null);
+
+        // The SAVED incident, not the one passed to save(). A client that is pushed an
+        // incident with a null id cannot key on it, and keying on id is what makes both the
+        // on-connect replay and the REST caller's own echo idempotent.
+        then(broadcaster).should().broadcast(savedIncident.capture());
+        assertThat(savedIncident.getValue().id()).isEqualTo("651f2c9a4b1d3e0001a2b3c4");
+    }
+
+    @Test
+    void pushesAfterStoringRatherThanBefore() {
+        given(analyzerService.analyze("HikariPool-1 timed out", null)).willReturn(ANALYSIS);
+        given(incidentRepository.save(any(Incident.class))).willAnswer(call -> call.getArgument(0));
+
+        incidentService.analyzeAndRecord("HikariPool-1 timed out", null);
+
+        // Storage failure still fails the whole call, unchanged from week 2. Pushing first
+        // would tell every dashboard about an incident that then failed to persist and cannot
+        // be opened at GET /api/incidents/{id} - a row on screen with no record behind it.
+        InOrder order = inOrder(incidentRepository, broadcaster);
+        order.verify(incidentRepository).save(any(Incident.class));
+        order.verify(broadcaster).broadcast(any(Incident.class));
     }
 
     @Test

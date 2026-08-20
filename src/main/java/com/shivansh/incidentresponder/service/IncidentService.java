@@ -4,6 +4,7 @@ import com.shivansh.incidentresponder.model.AgentResolution;
 import com.shivansh.incidentresponder.model.Incident;
 import com.shivansh.incidentresponder.model.LogAnalysis;
 import com.shivansh.incidentresponder.repository.IncidentRepository;
+import com.shivansh.incidentresponder.websocket.IncidentBroadcaster;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,18 @@ import java.time.Instant;
  * question-and-answer with the model and stays independently testable; recording is what
  * turns an answer into an incident. Week 3's Kafka consumer needs exactly this pair and
  * must not have to reimplement it from the controller.
+ * <p>
+ * <b>The live push is here rather than in the Kafka consumer</b>, for the same reason the
+ * pipeline itself is. Week 3 step 4 asked for finished Kafka incidents to reach the dashboard,
+ * and putting the broadcast in {@code IncidentEventConsumer} would have satisfied that
+ * literally while making the two entry points behave differently: a log dump submitted through
+ * {@code POST /api/analyze} - which is how a human uses the week 4 dashboard - would never
+ * appear in it. One place, both entry points. The consumer still does exactly three things.
+ * <p>
+ * The REST caller consequently receives its own incident twice, once as the HTTP response and
+ * once as a frame. That is deliberate and harmless: every frame carries the incident id, and
+ * the on-connect replay already requires the client to be idempotent on it. See
+ * {@code IncidentWebSocketHandler}.
  */
 @Slf4j
 @Service
@@ -26,6 +39,7 @@ public class IncidentService {
     private final AnalyzerService analyzerService;
     private final ResolverService resolverService;
     private final IncidentRepository incidentRepository;
+    private final IncidentBroadcaster broadcaster;
 
     /**
      * Analyses the logs, resolves the diagnosis against past incidents, and stores both.
@@ -56,6 +70,13 @@ public class IncidentService {
 
         log.info("Recorded incident {}: {} on {} ({})", saved.id(), saved.errorType(), saved.affectedService(),
                 resolution == null ? "no resolution" : "resolved");
+
+        // Not wrapped in a try/catch, and not because the risk was overlooked: IncidentBroadcaster
+        // absorbs its own failures the way ResolverService does, so the guarantee lives in one
+        // place instead of being restated at every call site where it could be restated
+        // differently. A closed browser tab must not cost an incident that two Groq calls have
+        // already been billed for.
+        broadcaster.broadcast(saved);
         return saved;
     }
 

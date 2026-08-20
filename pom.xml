@@ -65,6 +65,18 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!--
+            WebSocket (week 3 step 4), for pushing finished incidents to the dashboard.
+            The starter carries both the raw handler API and the STOMP messaging layer; only
+            the raw one is used. STOMP would add a second wire protocol on top of the JSON
+            contract and needs a client library in the browser, and it buys subscription
+            routing that a single broadcast stream has no use for. See docs/websocket.md.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>

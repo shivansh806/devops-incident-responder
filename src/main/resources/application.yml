@@ -137,6 +137,35 @@ incident:
     # unnoticed, and is the only reason there is a TTL at all.
     ttl: 7d
 
+  websocket:
+    # Where the week 4 dashboard connects. Raw WebSocket, not STOMP - one broadcast of one
+    # type to every client has nothing to route, and STOMP would make the frontend learn a
+    # second wire protocol on top of the JSON. See docs/websocket.md.
+    path: /ws/incidents
+
+    # How many past incidents a connecting client is replayed, tagged as `history` frames.
+    #
+    # Not zero because of the quota, not because of taste: at ~10 events a day the gap between
+    # incidents is hours, and a live-only stream leaves the dashboard blank for most of a
+    # working day - which is indistinguishable from a broken one. Note that on a database with
+    # no live traffic these ten are ENTIRELY seeded incidents; the newest seeded analyzedAt is
+    # 2026-08-09. Their null resolution means "never asked", which is exactly what the frame
+    # type is for. Set 0 for a live-only stream.
+    backlog: 10
+
+    # The handshake is an HTTP request but is NOT subject to CORS - the browser will not refuse
+    # a cross-origin connection, so the server must. Spring's default is same-origin, which
+    # would refuse week 4's Vite dev server on 5173 with a handshake failure that reads like a
+    # wrong URL. Listed rather than "*": a wildcard lets any page on the internet open a stream
+    # of this system's incident data, and it is the kind of default nothing ever flags.
+    #
+    # localhost:8080 is this app's OWN origin and is listed because a non-empty list
+    # REPLACES Spring's same-origin default rather than adding to it - without it, a browser
+    # console opened on the running app is refused its own socket, which is the first thing
+    # anyone tries. A command-line client (websocat, wscat) sends no Origin header at all and
+    # is allowed regardless.
+    allowed-origins: http://localhost:5173,http://localhost:3000,http://localhost:8080
+
   kafka:
     topic: incident-events
     # A quota switch, not a feature flag. False leaves the listener container stopped, so the

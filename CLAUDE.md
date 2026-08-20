@@ -126,7 +126,25 @@ not blending.
   knob on `OpenAiChatModel`'s builder in 1.18.1 nor on the starter. Two runs landed
   either side of that threshold, which is how the line was established.
 
-**Next:** Week 3, step 4 — WebSocket.
+**Week 3, step 4 done — WebSocket. WEEK 3 COMPLETE.**
+- `ws://localhost:8080/ws/incidents`. **Raw WebSocket, not STOMP** — one broadcast of one type
+  to every dashboard has nothing to route, and STOMP would make week 4 learn a second wire
+  protocol and ship a client library on top of the JSON. Client is `new WebSocket(url)`.
+- **The broadcast is in `IncidentService.analyzeAndRecord`, not in the consumer.** Step 4 asked
+  for Kafka incidents to reach the dashboard; putting it in `IncidentEventConsumer` would have
+  done that literally while making a `POST /api/analyze` incident invisible to the same
+  dashboard. One place, both entry points. The consumer still does exactly three things.
+- **On connect a client is replayed the 10 most recent incidents**, because at ~10 events/day a
+  live-only stream is blank for hours and a blank dashboard is indistinguishable from a broken
+  one. On a fresh database that backlog is **entirely seeded incidents** — newest seeded
+  `analyzedAt` is 2026-08-09.
+- **The session registers before the backlog is read**, so a duplicate is possible and a gap is
+  not. Consequence: nothing on this stream is ordered. Clients sort by `analyzedAt`, never by
+  arrival.
+- 194 tests pass offline, up from 147. Read docs/websocket.md before changing the frame shape,
+  the connect sequence or the origin list.
+
+**Next:** Week 4 — React + Vite + Tailwind frontend.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native
@@ -218,6 +236,36 @@ not blending.
   precedent (the prompt has that branch). Agent failure → null resolution, incident still
   stored. Neither loses a diagnosis the LLM was already billed for. Storage failure still
   fails the whole call, unchanged.
+- **A null `resolution` means different things on the two frame types, and that is the whole
+  reason `IncidentFrame` has an envelope.** `type: "incident"` → the Resolver ran and failed.
+  `type: "history"` → it was never asked (the seeded twenty). On REST the ambiguity is
+  documented and tolerable because the caller named the id; on a push stream nobody asked for
+  anything, and one empty box for both says the system gave up on an incident a human fixed in
+  February. **There is no "not yet"** — `analyzeAndRecord` is synchronous, so the Resolver has
+  finished before the push happens. A `resolutionStatus` field on `IncidentResponse` was
+  rejected: it changes the REST contract for a push-only problem and would carry exactly one
+  possible value on the live path today. Add a fourth frame type only if the Resolver ever
+  becomes asynchronous.
+- **`IncidentBroadcaster` is injected with the application's ObjectMapper — deliberately the
+  opposite of `IncidentEventParser` and `AnalysisCache`.** Those two need semantics that differ
+  from the REST path; this one needs output that is *identical*, because "the frontend learns
+  one object" is only true if the frame payload is the same bytes as the REST body. Measured
+  the hard way: the test's first stand-in used `Jackson2ObjectMapperBuilder.json().build()` and
+  wrote `analyzedAt` as `1.7871921E9`, because `WRITE_DATES_AS_TIMESTAMPS` is disabled by
+  Spring **Boot**, not by the builder. The production code was right and the replica was wrong.
+- **Every WebSocket session is wrapped in `ConcurrentWebSocketSessionDecorator`, and the
+  broadcaster keys its map on session id.** Two reasons, both load-bearing. `sendMessage` is
+  not thread-safe and this endpoint has two writers (the connection thread replaying, the Kafka
+  thread broadcasting). And the broadcast runs inline inside `analyzeAndRecord`, which
+  `POST /api/analyze` shares — so without the decorator's 5s/512KB limits one slow dashboard
+  adds its latency to every REST request. The id-keyed map is because Spring hands
+  `afterConnectionClosed` the *raw* session, which does not equal the decorator that was
+  registered; a `Set` would leak a session per closed tab.
+- **WebSocket allowed-origins REPLACES the same-origin default, it does not extend it.** Listing
+  the Vite port alone silently locks out `http://localhost:8080` — the app's own origin, and the
+  one a browser console is on when someone first tries the endpoint. It is in the list for that
+  reason. `*` is not the shortcut it looks like: it opens this system's incident stream to any
+  page on the internet.
 - **The prompt's worked example uses an invented failure class**, checked against all 20
   seeded incidents. Don't swap it for a realistic one. A scheduled-job duplicate-execution
   example was rejected because INC-2118 already resolves to making a job idempotent against
@@ -288,6 +336,15 @@ if it matters.
   is identifiable, but nothing acts on it. A unique index on `eventId` fixes the
   storage half; the Redis cache fixes the expensive half for free, which is why this
   waits for step 3 rather than being built now.
+- **Week 3: the incident stream replays from scratch on every connect.** No cursor, no
+  "everything since X", so a client that reconnects after an hour gets the most recent ten and
+  cannot discover what it missed beyond them. At ~10 events/day ten slots is over a day, so the
+  gap is theoretical now; a `since` parameter on the handshake is where it closes.
+- **Week 3: WebSocket sessions are in-memory in one process and nothing authenticates.** A
+  restart drops every dashboard (they reconnect into a fresh backlog), a second instance would
+  need a shared fan-out, and anyone who can reach the port reads every incident this system has
+  diagnosed. The last one is true of the REST endpoints too — the socket only makes it
+  continuous. Week 4 concerns, recorded now.
 - **Week 3: the DLT has no consumer and nothing alerts on it.** Failed events are
   kept rather than lost, which was the point, but noticing them is a manual
   `kafka-console-consumer` on `incident-events.DLT`.
