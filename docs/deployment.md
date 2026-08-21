@@ -234,14 +234,78 @@ The backlog replaying is the evidence: the connect path runs a Mongo query again
 corpus. So `MONGODB_URI` arriving as ordinary container environment — rather than through
 spring-dotenv reading a `.env` file that is not in the image — works.
 
-### Kafka is still open, and this run is not evidence about it
+### Kafka is still open, and the live run is not evidence about it
 
 A page load, a socket and a backlog replay do not touch the broker. More to the point, **an
 unreachable broker would not have prevented any of them**: Spring Kafka's listener container
-retries in the background and the application context comes up regardless. So a green run here
-says nothing either way.
+retries in the background and the application context comes up regardless. So a green run says
+nothing either way.
 
-Settling it costs about 9,800 tokens — run the `simulator` profile against the containerised app
-and watch one event finish and land on the socket. The reason for expecting it to work is that
-`kafka:29092` was advertised from week 3 step 1 and is not new in this change. That is a reason
-to expect success, not a substitute for observing it.
+The reason for expecting it to work is that `kafka:29092` was advertised from week 3 step 1 and
+is not new in this change. That is a reason to expect success, not a substitute for observing
+it.
+
+## Settling the Kafka path
+
+One event, ~9,800 Groq tokens, using the overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.simulator.yml --profile app up -d --wait
+```
+
+```bash
+docker compose logs -f app
+```
+
+**One event, not two.** The open question is whether `kafka:29092` resolves and serves from
+inside the app container, and a single event crosses it twice — the simulator produces over it
+and the consumer fetches back over it. A second event would re-test the 120s pacing, which is a
+different open question.
+
+Afterwards, return to the normal stack. The ordinary command recreates the container without
+any of the overlay:
+
+```bash
+docker compose --profile app up -d --wait
+```
+
+### What proves it
+
+Four lines, in this order. The third is the one that settles the question.
+
+| Line | What it proves |
+|---|---|
+| `Simulator starting: 1 event(s) to 'incident-events'…` | the profile is active; proves nothing about Kafka yet |
+| `Simulated event 1 of 1: <SCENARIO> on <service>…` | **produce** succeeded over `kafka:29092` |
+| `Consuming incident event <id> from incident-events-0@<offset>…` | **consume** succeeded — the round trip is real |
+| `Incident event <id> stored as <mongoId> (<ErrorType> on <service>)` | the full pipeline ran and persisted |
+
+Then on the dashboard at http://localhost:8080, a new incident appears at the **top** of the
+feed as a `type: "incident"` frame — live, not `history`, so it renders a real resolution rather
+than a human's `resolutionNotes`.
+
+### The failure to watch for is a hang, not an exception
+
+If `kafka:29092` were wrong the symptom would **not** be a stack trace. docs/infra.md records
+this shape: a client uses `bootstrap.servers` once to fetch metadata and then reconnects to
+whatever the broker advertised, so a mismatch lets the first connection succeed and then leaves
+the produce hanging.
+
+So: `Simulator starting` followed by silence, with no `Simulated event 1 of 1` line, is the
+advertised-address failure. `Simulated event 1 of 1` followed by silence, with no `Consuming`
+line, is a consume-side problem instead. Neither reads as an error, which is exactly why the
+absence of a line matters more here than the presence of one.
+
+Allow up to ~2 minutes between `Consuming` and `stored as`: that gap is two Groq calls plus a
+possible 15s rate-limit retry, not a stall.
+
+### One event costs full price, every time
+
+The Redis cache does not help here, and this is worth knowing before planning the recording
+around it. `IncidentLogRenderer` anchors every render to `Instant.now()` and fills the hostname,
+`{id}` and `{#40-120}` from a `RandomGenerator`, so the same scenario rendered twice is
+different log text and therefore a different cache key. The simulator also shuffles scenario
+order, so a replay is not even the same scenario.
+
+Pasting an identical dump into the dashboard form **is** a cache hit and **is** free. Simulated
+events are not. The daily 100,000 has to cover this verification run and the recording.

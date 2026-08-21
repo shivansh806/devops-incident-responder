@@ -391,7 +391,16 @@ the `simulator` profile against the containerised app and watching one event lan
 The address itself is inherited from week 3 rather than new, which is the reason for thinking it
 is right, not a reason to record it as checked.
 
-**Next:** Week 4, step 4 — record the demo, on a second run so the cache makes it free.
+**Next:** Week 4, step 4 — record the demo. **Settle the Kafka path first**, with the one-event
+overlay in `docker-compose.simulator.yml`; docs/deployment.md has the run and what to look for.
+- **The cache does NOT make a simulated-event replay free, and the plan to "record on a second
+  run" only holds for the form.** `IncidentLogRenderer` anchors each render to `Instant.now()`
+  and fills its hex host, `{id}` and `{#40-120}` from a `RandomGenerator`, so the same scenario
+  rendered twice is different log text and therefore a different cache key. Every simulated
+  event is a cold ~9,800 tokens no matter how often it has run, and the shuffle means a replay
+  is not even the same scenario. Pasting an identical dump into the form *is* a hit and *is*
+  free. Budget the recording accordingly: 100,000/day has to cover the verification run and the
+  take.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native

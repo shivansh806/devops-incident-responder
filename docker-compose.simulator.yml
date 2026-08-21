@@ -1,0 +1,33 @@
+# A one-off overlay for proving the Kafka path works from inside the app container.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.simulator.yml --profile app up -d --wait
+#   docker compose logs -f app
+#
+# Go back to the normal stack with the ordinary command, which recreates the container
+# without any of this:
+#
+#   docker compose --profile app up -d --wait
+#
+# This is an OVERLAY rather than an edit to docker-compose.yml, and rather than an
+# environment variable with an empty default, so that the normal topology has no
+# simulator-shaped hole in it that could fire by accident. It costs Groq quota every time
+# it runs.
+
+services:
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: simulator
+
+      # ONE event, ~9,800 Groq tokens. One is all the open question needs: it asks whether
+      # kafka:29092 resolves and serves from inside this container, and a single event
+      # exercises produce AND consume across it. A second event would re-test the 120s
+      # pacing, which is a different open question and not this one.
+      INCIDENT_SIMULATOR_COUNT: "1"
+
+    # Deliberately NOT "unless-stopped" here, unlike the base file.
+    #
+    # The simulator is an ApplicationRunner: it fires once per application start. Under a
+    # restart policy a crash-looping container would re-emit on every restart and could
+    # spend the entire 100,000/day budget without anyone watching. A one-off measurement
+    # run must not have a retry policy attached to it.
+    restart: "no"

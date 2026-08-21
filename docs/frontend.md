@@ -202,8 +202,24 @@ an identical log dump is served from the Redis cache for free. That is in the in
 than only in this file because the alternative to knowing it is discovering it as a 429 halfway
 through a recording.
 
-**Record the demo on a second run.** The cache makes the replay free, which is what step 3 of
-week 3 was for.
+~~**Record the demo on a second run.** The cache makes the replay free, which is what step 3 of
+week 3 was for.~~
+
+**Half right, and the half that is wrong is the half the recording was going to lean on.**
+"Record on a second run so the cache makes it free" is true for the FORM and false for
+SIMULATED EVENTS.
+
+The cache key is built from the log text. Pasting the *same* dump into the form twice is a hit
+and costs nothing, so a rehearsed form submission is genuinely free the second time.
+
+A simulated event is not. `IncidentLogRenderer` anchors every render to `Instant.now()` and
+fills `{#40-120}`, `{id}` and the hostname from a `RandomGenerator` on each call, so **two runs
+of the same scenario produce different log text and therefore different cache keys**. Every
+simulated event is a cold event at ~9,800 tokens, however many times it has been run before.
+The simulator also shuffles scenario order, so a replay is not even the same scenario.
+
+Consequence for step 4: budget Kafka events at full price. The cache does not make a second
+Kafka run cheaper, and the daily 100,000 has to cover the verification run and the recording.
 
 ## Status: verified live 2026-08-20
 
