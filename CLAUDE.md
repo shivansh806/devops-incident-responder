@@ -383,24 +383,42 @@ http://localhost:8080 — page loads, socket connects, backlog replays.**
   from the application root; a Vite `base` other than `/` would break here and is the first
   thing to check if a future build 404s on its own assets.
 
-**Still not verified: Kafka reachable at `kafka:29092` from the app container.** A page load, a
-socket and a backlog do not touch it, and **an unreachable broker would not have prevented any
-of them** — Spring Kafka's listener container retries in the background and the context comes up
-regardless. So this run is not evidence either way. It costs ~9,800 tokens to settle, by running
-the `simulator` profile against the containerised app and watching one event land on the socket.
-The address itself is inherited from week 3 rather than new, which is the reason for thinking it
-is right, not a reason to record it as checked.
+**Kafka container-to-container is verified too — WEEK 4 STEP 3 IS FULLY VERIFIED.** One event
+through `docker-compose.simulator.yml`: produced, consumed, resolved, stored, all four log lines
+in order. `kafka:29092` resolves and serves from inside the app container, and the week 3
+advertised-listener decision holds in the topology it was written for.
 
-**Next:** Week 4, step 4 — record the demo. **Settle the Kafka path first**, with the one-event
-overlay in `docker-compose.simulator.yml`; docs/deployment.md has the run and what to look for.
-- **The cache does NOT make a simulated-event replay free, and the plan to "record on a second
-  run" only holds for the form.** `IncidentLogRenderer` anchors each render to `Instant.now()`
-  and fills its hex host, `{id}` and `{#40-120}` from a `RandomGenerator`, so the same scenario
-  rendered twice is different log text and therefore a different cache key. Every simulated
-  event is a cold ~9,800 tokens no matter how often it has run, and the shuffle means a replay
-  is not even the same scenario. Pasting an identical dump into the form *is* a hit and *is*
-  free. Budget the recording accordingly: 100,000/day has to cover the verification run and the
-  take.
+Three things that run picked up beyond the address itself:
+- **Atlas vector search works from the container, which the backlog replay had NOT shown.**
+  Precedents came back as INC-2491 and INC-2179. The connect backlog is a `find` with a sort;
+  retrieval is a `$vectorSearch` aggregation against the Atlas index — a different operation
+  that could have failed while the first succeeded.
+- **`service` absent means "infer the origin", confirmed on the live path.** The scenario
+  withheld the field and the model inferred the service. That contract was pinned offline by
+  `IncidentEventConsumerTest`; this is the first time it has been seen end to end through Kafka.
+- **~10 seconds end to end, so the Resolver was never rate limited on this event.** A refusal
+  costs a 15s backoff before the retry, so anything under 15s means no 429 happened. **This is
+  one observation and does not close the burst item below.** The plausible reading is that the
+  bucket was idle and the Analyzer's own latency refilled enough to fit the Resolver — 8,000
+  less ~5,121, plus ~133/s during the Analyzer call, lands within a few hundred tokens of the
+  ~3,600 the Resolver needs. That arithmetic *fits*, it was not measured, and the margin it
+  describes is thin enough that the same event could go either way. Treat a future refusal here
+  as expected, not as a regression.
+
+**Next:** Week 4, step 4 — record the demo. **Everything it depends on is now verified**: one
+origin, the dashboard, the form, and the Kafka path end to end.
+- **The cache does NOT make a simulated-event replay free**, so "record on a second run" only
+  holds for the form. `IncidentLogRenderer` anchors each render to `Instant.now()` and fills its
+  hex host, `{id}` and `{#40-120}` from a `RandomGenerator`, so the same scenario rendered twice
+  is different log text and therefore a different cache key. Every simulated event is a cold
+  ~9,800 tokens no matter how often it has run, and the shuffle means a replay is not even the
+  same scenario. Pasting an identical dump into the form *is* a hit and *is* free.
+- **Budget: ~9,800 was spent settling Kafka, so plan the take around what is left of the
+  100,000.** A Kafka event on camera costs full price; a rehearsed form submission costs
+  nothing the second time. Reaching for the form for the repeatable parts and the simulator once
+  for the live-event moment is the cheap ordering.
+- **`docker-compose.simulator.yml` defaults to one event.** Raise `INCIDENT_SIMULATOR_COUNT`
+  only with the 120s interval and the daily budget both in mind.
 
 ## Design decisions (do not undo without asking)
 - Structured output uses LangChain4j's prompt-based JSON path, not native

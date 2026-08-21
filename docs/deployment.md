@@ -196,7 +196,8 @@ loads, the socket connects, and the backlog replays.
 | Container serves the bundle | **verified live** |
 | Same-origin WebSocket with an empty allowlist | **verified live** |
 | Atlas reachable from inside the container | **verified live** |
-| Kafka reachable at `kafka:29092` from the app container | **not verified** |
+| Kafka reachable at `kafka:29092` from the app container | **verified live** |
+| Atlas vector search from the app container | **verified live** |
 
 ### The empty allowlist, and why it took two things to close
 
@@ -234,20 +235,43 @@ The backlog replaying is the evidence: the connect path runs a Mongo query again
 corpus. So `MONGODB_URI` arriving as ordinary container environment — rather than through
 spring-dotenv reading a `.env` file that is not in the image — works.
 
-### Kafka is still open, and the live run is not evidence about it
+### Kafka, settled
 
-A page load, a socket and a backlog replay do not touch the broker. More to the point, **an
-unreachable broker would not have prevented any of them**: Spring Kafka's listener container
-retries in the background and the application context comes up regardless. So a green run says
-nothing either way.
+**Verified 2026-08-20.** One event through the overlay below: all four log lines in order,
+~10 seconds end to end, resolved against INC-2491 and INC-2179, stored. `kafka:29092` resolves
+and serves from inside the app container.
 
-The reason for expecting it to work is that `kafka:29092` was advertised from week 3 step 1 and
-is not new in this change. That is a reason to expect success, not a substitute for observing
-it.
+Worth noting what the *earlier* run could not have told us. A page load, a socket and a backlog
+replay never touch the broker — and **an unreachable broker would not have prevented any of
+them**, because Spring Kafka's listener container retries in the background and the application
+context comes up regardless. A green dashboard and a dead broker look identical from outside.
+That is why this needed its own event rather than being read off the first run.
 
-## Settling the Kafka path
+Three things the event established beyond the address:
 
-One event, ~9,800 Groq tokens, using the overlay:
+**Atlas vector search works from the container, which the backlog had not shown.** Precedents
+came back as INC-2491 and INC-2179. The connect backlog is a `find` with a sort; retrieval is a
+`$vectorSearch` aggregation against the Atlas index. Different operation, different failure
+modes — the first succeeding says nothing about the second.
+
+**An absent `service` field means "infer the origin", now seen end to end.** The scenario
+withheld it and the model inferred the service rather than receiving one.
+`IncidentEventConsumerTest` pins that offline; this is the first time it has run through Kafka
+in the container.
+
+**No rate limit on this event, and that is one observation rather than a finding.** ~10 seconds
+end to end means no 429: a refusal costs a 15s backoff before the retry, so anything under 15s
+rules one out. The plausible reading is that the bucket was idle and the Analyzer's own latency
+refilled enough to fit the Resolver — 8,000 less ~5,121, plus ~133/s across the Analyzer call,
+lands within a few hundred tokens of the ~3,600 the Resolver wants. **That arithmetic fits; it
+was not measured.** The margin it describes is thin enough that the same event could go the
+other way, so a future refusal here is expected behaviour and not a regression. The burst item
+in CLAUDE.md stays open.
+
+## Running the simulator against the container
+
+Still useful after the fact — this is how the run above was done, and how to produce a live
+event for the demo. One event, ~9,800 Groq tokens:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.simulator.yml --profile app up -d --wait
@@ -296,8 +320,11 @@ advertised-address failure. `Simulated event 1 of 1` followed by silence, with n
 line, is a consume-side problem instead. Neither reads as an error, which is exactly why the
 absence of a line matters more here than the presence of one.
 
-Allow up to ~2 minutes between `Consuming` and `stored as`: that gap is two Groq calls plus a
-possible 15s rate-limit retry, not a stall.
+**The measured run took ~10 seconds end to end**, so that is the shape to expect on an idle
+bucket. Allow considerably longer before calling it a stall, though: the gap between
+`Consuming` and `stored as` is two Groq calls and, if the Resolver is refused, a 15s backoff
+plus a second attempt. A run that takes 30-40s is a rate-limited one behaving correctly, not a
+hang.
 
 ### One event costs full price, every time
 
