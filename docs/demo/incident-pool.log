@@ -1,0 +1,20 @@
+2026-08-21T02:14:00Z INFO  [checkout-service] [http-nio-8080-exec-3] c.a.app.web.CheckoutController - Processing order ORD-847302 for customer CUS-48117
+2026-08-21T02:14:04Z INFO  [checkout-service] [pool-metrics-1] c.z.hikari.HikariDataSource - Pool stats (main-pool): total=40, active=31, idle=9, waiting=0
+2026-08-21T02:14:31Z WARN  [checkout-service] [http-nio-8080-exec-7] c.z.hikari.pool.HikariPool - main-pool - Connection is not available, request timed out after 30001ms (total=40, active=40, idle=0, waiting=12)
+2026-08-21T02:14:34Z INFO  [checkout-service] [pool-metrics-1] c.z.hikari.HikariDataSource - Pool stats (main-pool): total=40, active=40, idle=0, waiting=12
+2026-08-21T02:14:36Z INFO  [checkout-service] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check OK: disk=UP, ping=UP, db=DEGRADED
+2026-08-21T02:14:41Z ERROR [checkout-service] [http-nio-8080-exec-7] c.a.app.web.CheckoutController - Failed to process order ORD-847302
+org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+	at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:83)
+	at com.acme.app.repository.OrderRepository.findPending(OrderRepository.java:114)
+	at com.acme.app.service.CheckoutService.settle(CheckoutService.java:207)
+Caused by: java.sql.SQLTransientConnectionException: main-pool - Connection is not available, request timed out after 30001ms
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)
+	... 34 common frames omitted
+2026-08-21T02:14:44Z INFO  [checkout-service] [metrics-publisher] i.m.core.instrument.MeterRegistry - hikaricp_connections_pending=17 hikaricp_connections_timeout_total=84
+2026-08-21T02:14:47Z INFO  [checkout-service] [db-monitor-1] c.a.app.db.QueryMonitor - Connection acquisition p99 2ms -> 4100ms; statement execution p99 unchanged at 7ms
+2026-08-21T02:14:52Z INFO  [checkout-service] [db-monitor-1] c.a.app.db.QueryMonitor - No statement exceeded the 500ms slow-query threshold in the last 30 minutes (0 entries)
+2026-08-21T02:14:55Z INFO  [checkout-service] [tx-monitor-1] c.a.app.db.TransactionMonitor - Mean transaction hold time 9ms, p99 16ms; no outbound HTTP calls recorded inside transaction scope
+2026-08-21T02:15:01Z WARN  [checkout-service] [http-nio-8080-exec-2] c.z.hikari.pool.HikariPool - main-pool - Connection is not available, request timed out after 30002ms (total=40, active=40, idle=0, waiting=19)
+2026-08-21T02:15:06Z ERROR [checkout-service] [http-nio-8080-exec-2] c.a.app.web.CheckoutController - Request failed, returning 503 to caller cart-service
+2026-08-21T02:15:10Z INFO  [checkout-service] [traffic-monitor] c.a.app.metrics.Throughput - Requests/sec 214 (7-day mean 112); no deploy in the last 14 days

@@ -1,0 +1,9 @@
+2026-08-21T09:02:11Z INFO  [billing-service] [main] c.a.billing.tls.KeystoreLoader - Loading server keystore /etc/tls/billing.p12, alias billing-internal
+2026-08-21T09:02:11Z ERROR [billing-service] [https-jsse-nio-8443-exec-1] o.a.tomcat.util.net.SecureNioChannel - Handshake failed for inbound connection from 10.42.7.19
+javax.net.ssl.SSLHandshakeException: No available authentication scheme
+Caused by: java.security.cert.CertificateExpiredException: NotAfter: Thu Aug 20 23:59:59 UTC 2026
+	at java.base/sun.security.x509.CertificateValidity.valid(CertificateValidity.java:277)
+2026-08-21T09:02:12Z WARN  [billing-service] [cert-monitor] c.a.billing.tls.CertificateMonitor - Server certificate serial 4A:19:C2:7F expired 2026-08-20T23:59:59Z; issued 2025-08-20, renewal job last succeeded 2025-08-20
+2026-08-21T09:02:14Z INFO  [billing-service] [metrics-publisher] i.m.core.instrument.MeterRegistry - tomcat_handshake_failures_total=118 tomcat_sessions_active=0
+2026-08-21T09:02:19Z ERROR [billing-service] [https-jsse-nio-8443-exec-4] c.a.billing.web.SettlementController - Rejected 118 inbound requests in the last 60s; no request reached application code
+2026-08-21T09:02:26Z INFO  [billing-service] [health-check-1] o.s.b.a.health.HealthEndpoint - Health check: disk=UP, db=UP, tls=DOWN; process healthy, listener refusing connections
