@@ -364,6 +364,15 @@ Full reasoning in docs/deployment.md; read it before changing the Dockerfile or 
   construction rather than by conversion behaviour, and `WebSocketConfigTest` pins it including
   the negative. **Dev is untouched** — the `@Value` default still carries 5173.
 
+**198 tests pass offline, up from 194** — `mvn test`, run 2026-08-21 in a
+`maven:3.9-eclipse-temurin-21` container with the host `~/.m2` mounted, since `mvn` is not on
+PATH here. The four new ones are `WebSocketConfigTest`, and **this is the first time they have
+actually been run**: the image build compiles test sources under `-DskipTests` but does not
+execute them, so up to this point "WebSocketConfigTest pins it" was a claim about a test that
+had only ever compiled. It passes 4/4. This is also the first full-suite run since the model
+change — the suite is entirely offline, so nothing in it touches Groq and it was never at risk
+from that, but it had not been confirmed.
+
 **Status: verified live 2026-08-20. `docker compose --profile app up -d --wait --build`, then
 http://localhost:8080 — page loads, socket connects, backlog replays.**
 - **The empty allowlist works, and that was the open one.** Spring falls back to same-origin
