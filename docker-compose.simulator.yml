@@ -24,6 +24,20 @@ services:
       # pacing, which is a different open question and not this one.
       INCIDENT_SIMULATOR_COUNT: "1"
 
+      # Hold the first event back so a dashboard can be connected before it lands.
+      #
+      # Bringing this overlay up RECREATES the app container, which kills any socket that was
+      # already open. Without a delay the event is then produced, consumed and broadcast to
+      # zero sessions, and a browser opened afterwards finds it in the connect backlog tagged
+      # `history` rather than `incident` - which looks exactly like a broken live push.
+      #
+      # 90s: the container has to start, Spring has to come up, and you have to open the page.
+      # For a live demo, prefer kafka-console-producer against the plain stack instead - it
+      # needs no delay and recreates nothing, so an open socket survives:
+      #   docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh \
+      #     --bootstrap-server localhost:9092 --topic incident-events < event.json
+      INCIDENT_SIMULATOR_INITIAL_DELAY: 90s
+
     # Deliberately NOT "unless-stopped" here, unlike the base file.
     #
     # The simulator is an ApplicationRunner: it fires once per application start. Under a

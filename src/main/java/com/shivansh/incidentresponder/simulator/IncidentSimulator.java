@@ -113,15 +113,18 @@ public class IncidentSimulator implements ApplicationRunner {
     private final String topic;
     private final int count;
     private final Duration interval;
+    private final Duration initialDelay;
 
     public IncidentSimulator(KafkaTemplate<String, String> kafkaTemplate,
                              @Value("${incident.kafka.topic}") String topic,
                              @Value("${incident.simulator.count}") int count,
-                             @Value("${incident.simulator.interval}") Duration interval) {
+                             @Value("${incident.simulator.interval}") Duration interval,
+                             @Value("${incident.simulator.initial-delay:0s}") Duration initialDelay) {
         this.kafkaTemplate = kafkaTemplate;
         this.topic = topic;
         this.count = count;
         this.interval = interval;
+        this.initialDelay = initialDelay;
     }
 
     @Override
@@ -132,6 +135,27 @@ public class IncidentSimulator implements ApplicationRunner {
     }
 
     private void emitAll() {
+        // Hold the first event back so a dashboard can be connected before it lands.
+        //
+        // This runs as an ApplicationRunner, so without a delay the first event is produced,
+        // consumed and broadcast before anyone can open the page - and the broadcast then goes
+        // to zero sessions. The incident is not lost: a client connecting afterwards still sees
+        // it in the connect backlog, tagged `history` rather than `incident`. So this is not a
+        // correctness problem, it is a demo one, and it looks exactly like a broken live push.
+        //
+        // Default 0s, so nothing changes for an ordinary run.
+        if (!initialDelay.isZero() && !initialDelay.isNegative()) {
+            log.info("Simulator holding the first event for {}s - connect a dashboard now",
+                    initialDelay.toSeconds());
+            try {
+                Thread.sleep(initialDelay.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.info("Simulator interrupted during its initial delay, producing nothing");
+                return;
+            }
+        }
+
         List<IncidentScenario> order = new ArrayList<>(List.of(IncidentScenario.values()));
         Collections.shuffle(order);
 
