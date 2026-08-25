@@ -175,6 +175,19 @@ incident:
     consumer-enabled: true
 
   simulator:
+    # How long to hold the FIRST event back. Zero for an ordinary run; set it for a live demo.
+    #
+    # The simulator is an ApplicationRunner, so at 0s the first event is produced, consumed and
+    # broadcast before a browser can be opened - and that broadcast reaches zero sessions. The
+    # incident is not lost; a dashboard connecting afterwards finds it in the connect backlog,
+    # tagged `history` instead of `incident`. Nothing is broken, but it reads exactly like a
+    # broken live push, which is the worst way for a demo to fail.
+    #
+    # For a live demo, prefer producing to the topic by hand instead - one line through
+    # kafka-console-producer against the already-running stack needs no delay at all and
+    # recreates nothing, so a socket that is already open survives and sees the live frame.
+    # This knob is for when the simulator itself is what you want running.
+    initial-delay: 0s
     # Three, not eight, because each event costs ~9,800 Groq tokens against 100,000 per day.
     # A full eight-scenario run is ~78,000 - most of the daily budget. See IncidentSimulator.
     count: 3

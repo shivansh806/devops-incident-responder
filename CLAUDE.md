@@ -414,6 +414,29 @@ Three things that run picked up beyond the address itself:
   describes is thin enough that the same event could go either way. Treat a future refusal here
   as expected, not as a regression.
 
+**2026-08-23 — the simulator cannot demonstrate a live push, and the reason is its lifecycle.**
+Diagnosed from a real attempt: the broadcast fired at 18:10:37 with **zero sessions open**, and
+the dashboard connected 19 seconds later.
+- **Nothing was broken.** `IncidentSimulator` is an `ApplicationRunner`, so it fires as the
+  context finishes starting — before a browser can be opened. The incident was produced,
+  consumed, resolved, stored and broadcast to nobody. The dashboard then found it in the
+  **connect backlog**, tagged `history` rather than `incident`.
+- **That is the failure worth noticing: correct behaviour that reads as a bug.** A missing live
+  frame and a broken socket look identical from the browser, and the frame-type distinction —
+  built in week 3 to separate "never asked" from "tried and failed" — is what makes the
+  difference visible at all. The incident arriving as `history` is the evidence that the push
+  ran early, not that it failed.
+- **`incident.simulator.initial-delay` added, default `0s`**, so an ordinary run is unchanged.
+  The overlay sets **90s**: the container has to start, Spring has to come up, and a page has to
+  be opened. Bringing the overlay up **recreates the app container**, which kills any socket
+  already open — so for the simulator the delay is not optional, it is the only way.
+- **But the better tool for a live demo is not the simulator at all.** One line through
+  `kafka-console-producer` against the plain `--profile app` stack produces an event on demand,
+  **recreates nothing**, and so leaves an already-connected socket alive to receive the live
+  frame. `incident.kafka.consumer-enabled` defaults true, so the running app consumes it with no
+  overlay and no restart. Verified present in the running container:
+  `/opt/kafka/bin/kafka-console-producer.sh`, topic `incident-events`.
+
 **Next:** Week 4, step 4 — record the demo. **Everything it depends on is now verified**: one
 origin, the dashboard, the form, and the Kafka path end to end.
 - **The cache does NOT make a simulated-event replay free**, so "record on a second run" only
